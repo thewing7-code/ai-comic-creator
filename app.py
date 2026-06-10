@@ -89,31 +89,13 @@ title, description_ko, dialogue는 한국어. character_desc, description_en은 
         return None
 
 def add_speech_bubble(img: Image.Image, dialogue: str) -> Image.Image:
-    """이미지 하단에 말풍선과 한글 대사를 합성"""
+    """이미지 하단 안쪽에 말풍선 오버레이 합성 (이미지 크기 유지)"""
     W, H = img.size
-    FONT_SIZE = 28
-    bubble_h = 100
-    new_img = Image.new("RGB", (W, H + bubble_h), "white")
-    new_img.paste(img, (0, 0))
-    draw = ImageDraw.Draw(new_img)
+    draw = ImageDraw.Draw(img)
 
-    # 말풍선 배경
-    margin = 10
-    draw.rounded_rectangle(
-        [margin, H + 10, W - margin, H + bubble_h - 6],
-        radius=18, fill="#F0E8FF", outline="#7B3FDB", width=3
-    )
-    # 말풍선 꼬리
-    tail_x = W // 2
-    draw.polygon(
-        [(tail_x - 14, H + 10), (tail_x + 14, H + 10), (tail_x, H - 4)],
-        fill="#F0E8FF"
-    )
-    draw.line([(tail_x - 14, H + 10), (tail_x, H - 4)], fill="#7B3FDB", width=2)
-    draw.line([(tail_x + 14, H + 10), (tail_x, H - 4)], fill="#7B3FDB", width=2)
-
-    # 한글 폰트 - 여러 경로 순서대로 시도
+    # 폰트 로드
     font = None
+    FONT_SIZE = max(20, W // 22)
     font_paths = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "NotoSansCJK-Bold.ttc"),
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
@@ -128,20 +110,48 @@ def add_speech_bubble(img: Image.Image, dialogue: str) -> Image.Image:
     if font is None:
         font = ImageFont.load_default()
 
-    # 텍스트 가운데 정렬
-    max_chars = 18
+    # 텍스트 줄바꿈
+    max_chars = 16
     lines = textwrap.wrap(dialogue, width=max_chars)[:2]
-    total_text_h = len(lines) * (FONT_SIZE + 6)
-    start_y = H + 10 + (bubble_h - 16 - total_text_h) // 2
+    n_lines = len(lines)
+    line_h = FONT_SIZE + 6
+    bubble_h = n_lines * line_h + 28
+    bubble_w = W - 40
+    bx = 20
+    by = H - bubble_h - 20  # 이미지 하단 안쪽
 
+    # 말풍선 반투명 배경 (흰색 + 테두리)
+    # PIL은 투명도 직접 지원 안 하므로 흰 배경으로
+    draw.rounded_rectangle(
+        [bx, by, bx + bubble_w, by + bubble_h],
+        radius=16, fill="white", outline="#7B3FDB", width=3
+    )
+
+    # 말풍선 꼬리 (아래쪽 가운데)
+    tail_x = W // 2
+    tail_tip_y = by + bubble_h + 16
+    draw.polygon(
+        [(tail_x - 12, by + bubble_h),
+         (tail_x + 12, by + bubble_h),
+         (tail_x, min(tail_tip_y, H - 4))],
+        fill="white"
+    )
+    draw.line([(tail_x - 12, by + bubble_h), (tail_x, min(tail_tip_y, H - 4))],
+              fill="#7B3FDB", width=2)
+    draw.line([(tail_x + 12, by + bubble_h), (tail_x, min(tail_tip_y, H - 4))],
+              fill="#7B3FDB", width=2)
+
+    # 텍스트
+    text_start_y = by + 12
     for li, line in enumerate(lines):
         try:
             tw = draw.textlength(line, font=font)
         except Exception:
-            tw = len(line) * FONT_SIZE * 0.6
-        x = max(margin + 8, (W - tw) / 2)
-        draw.text((x, start_y + li * (FONT_SIZE + 6)), line, font=font, fill="#2D1B69")
-    return new_img
+            tw = len(line) * FONT_SIZE * 0.55
+        tx = bx + (bubble_w - tw) / 2
+        draw.text((tx, text_start_y + li * line_h), line, font=font, fill="#1A0050")
+
+    return img
 
 def generate_panel_image(description_en: str, character_desc: str,
                           panel_num: int, style_prompt: str,
@@ -323,11 +333,22 @@ if st.session_state.stage == "input":
                          label_visibility="collapsed")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("**💡 예시 아이디어를 눌러봐!**")
-    cols = st.columns(4)
-    examples = ["🐶 강아지가 숙제를 망치는 이야기","🚀 우주에서 점심 먹는 이야기","🌊 바다에서 보물 찾기","🤖 로봇 친구와 운동회"]
+    st.markdown("**💡 예시 아이디어를 눌러봐! (누르면 바로 입력돼)**")
+    examples = [
+        "🐶 강아지가 숙제를 망치는 이야기",
+        "🚀 우주에서 점심 먹는 이야기",
+        "🌊 바다에서 보물을 찾는 이야기",
+        "🤖 로봇 친구와 운동회",
+        "🦁 동물원에서 탈출한 사자 이야기",
+        "🍕 피자를 혼자 다 먹으려다 생긴 일",
+        "⚽ 축구 시합에서 역전 골을 넣는 이야기",
+        "🎵 노래를 못하는 아이가 대회에 나가는 이야기",
+    ]
+    row1_cols = st.columns(4)
+    row2_cols = st.columns(4)
+    all_cols = row1_cols + row2_cols
     for i, ex in enumerate(examples):
-        if cols[i].button(ex, key=f"ex_{i}", use_container_width=True):
+        if all_cols[i].button(ex, key=f"ex_{i}", use_container_width=True):
             st.session_state.idea = ex
             st.rerun()
     st.markdown("<br>", unsafe_allow_html=True)
