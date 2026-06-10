@@ -38,7 +38,7 @@ STYLES = {
     "🖍️ 귀여운 만화": "cute kawaii cartoon style, bright colors, simple clean lines",
     "🎨 수채화": "soft watercolor illustration style, gentle pastel colors, artistic",
     "✏️ 연필 스케치": "pencil sketch style, hand-drawn lines, light shading, black and white",
-    "🌸 일본 애니": "Japanese anime style, expressive eyes, vibrant colors, manga art",
+    "🌸 애니메이션": "animation cartoon style, expressive eyes, vibrant colors, colorful",
     "📚 동화책": "children's picture book illustration, warm friendly colors",
     "🎭 팝아트": "pop art style, bold outlines, bright comic book colors",
 }
@@ -99,14 +99,14 @@ title, description_ko, dialogue는 한국어. character_desc, description_en은 
     st.error("❌ AI 서버가 계속 바빠요. 잠시 후 다시 시도해 주세요!")
     return None
 
-def add_speech_bubble(img: Image.Image, dialogue: str) -> Image.Image:
+def add_speech_bubble(img: Image.Image, dialogue: str, panel_idx: int = 0) -> Image.Image:
     """이미지 하단 안쪽에 말풍선 오버레이 합성 (이미지 크기 유지)"""
     W, H = img.size
     draw = ImageDraw.Draw(img)
 
     # 폰트 로드
     font = None
-    FONT_SIZE = max(22, W // 20)
+    FONT_SIZE = max(20, W // 22)
     font_paths = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "NotoSansCJK-Bold.ttc"),
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
@@ -122,45 +122,53 @@ def add_speech_bubble(img: Image.Image, dialogue: str) -> Image.Image:
         font = ImageFont.load_default()
 
     # 텍스트 줄바꿈
-    max_chars = 14
+    max_chars = 12
     lines = textwrap.wrap(dialogue, width=max_chars)[:2]
-    n_lines = len(lines)
-    line_h = FONT_SIZE + 8
-    bubble_h = n_lines * line_h + 32
-    bubble_w = int(W * 0.75)
-    bx = (W - bubble_w) // 2          # 가로 가운데 정렬
-    tail_h = 22
-    by = H - bubble_h - tail_h - 16   # 꼬리 공간 확보 후 배치
+    n_lines = max(len(lines), 1)
+    line_h = FONT_SIZE + 6
+    bubble_h = n_lines * line_h + 28
 
-    # 말풍선 배경 (흰색 + 보라 테두리)
+    # 컷별 말풍선 레이아웃 (위치·크기·꼬리 방향 다양화)
+    layouts = [
+        {"bx_r": 0.04, "by_r": 0.60, "bw_r": 0.58, "tail_xr": 0.22, "tail_side": "left"},
+        {"bx_r": 0.38, "by_r": 0.60, "bw_r": 0.58, "tail_xr": 0.78, "tail_side": "right"},
+        {"bx_r": 0.04, "by_r": 0.63, "bw_r": 0.54, "tail_xr": 0.18, "tail_side": "left"},
+        {"bx_r": 0.42, "by_r": 0.63, "bw_r": 0.54, "tail_xr": 0.72, "tail_side": "right"},
+    ]
+    lay = layouts[panel_idx % 4]
+    bubble_w = int(W * lay["bw_r"])
+    bx = max(8, min(int(W * lay["bx_r"]), W - bubble_w - 8))
+    by = max(8, min(int(H * lay["by_r"]), H - bubble_h - 36))
+
+    # 말풍선 배경
     draw.rounded_rectangle(
         [bx, by, bx + bubble_w, by + bubble_h],
-        radius=18, fill="white", outline="#7B3FDB", width=3
+        radius=16, fill="white", outline="#5B2DB0", width=3
     )
 
-    # 말풍선 꼬리 - 말풍선 아래 중앙에서 아래쪽으로
-    tail_x = W // 2
-    tail_top_y = by + bubble_h
-    tail_tip_y = tail_top_y + tail_h
+    # 꼬리: 말풍선 하단에서 화자 방향으로
+    tail_xr = lay["tail_xr"]
+    tail_side = lay["tail_side"]
+    tx = max(bx + 16, min(int(W * tail_xr), bx + bubble_w - 16))
+    ty_top = by + bubble_h
+    ty_tip = min(ty_top + 22, H - 4)
+    offset = -14 if tail_side == "left" else 14
     draw.polygon(
-        [(tail_x - 14, tail_top_y),
-         (tail_x + 14, tail_top_y),
-         (tail_x, tail_tip_y)],
+        [(tx + offset, ty_top), (tx - offset, ty_top), (tx, ty_tip)],
         fill="white"
     )
-    # 꼬리 테두리
-    draw.line([(tail_x - 14, tail_top_y), (tail_x, tail_tip_y)], fill="#7B3FDB", width=3)
-    draw.line([(tail_x + 14, tail_top_y), (tail_x, tail_tip_y)], fill="#7B3FDB", width=3)
+    draw.line([(tx + offset, ty_top), (tx, ty_tip)], fill="#5B2DB0", width=3)
+    draw.line([(tx - offset, ty_top), (tx, ty_tip)], fill="#5B2DB0", width=3)
 
     # 텍스트 가운데 정렬
-    text_start_y = by + 14
+    text_start_y = by + 12
     for li, line in enumerate(lines):
         try:
             tw = draw.textlength(line, font=font)
         except Exception:
             tw = len(line) * FONT_SIZE * 0.55
-        tx = bx + (bubble_w - tw) / 2
-        draw.text((tx, text_start_y + li * line_h), line, font=font, fill="#1A0050")
+        tx_text = bx + (bubble_w - tw) / 2
+        draw.text((tx_text, text_start_y + li * line_h), line, font=font, fill="#1A0050")
 
     return img
 
@@ -235,7 +243,7 @@ def generate_all_panels(panels: list[dict], character_desc: str,
                 for idx, (x0, y0, x1, y1) in enumerate(coords):
                     panel_img = full_img.crop((x0, y0, x1, y1))
                     dialogue = panels[idx]["dialogue"]
-                    panel_with_bubble = add_speech_bubble(panel_img, dialogue)
+                    panel_with_bubble = add_speech_bubble(panel_img, dialogue, panel_idx=idx)
                     buf = io.BytesIO()
                     panel_with_bubble.save(buf, format="PNG")
                     panel_images.append(buf.getvalue())
