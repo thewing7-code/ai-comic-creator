@@ -107,7 +107,7 @@ class ComicScript(BaseModel):
     panel4: ComicPanel
 
 
-# ─── 유틸: API 클라이언트 ─────────────────────────────────────────────
+# ─── API 클라이언트 ───────────────────────────────────────────────────
 def get_client():
     api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -129,7 +129,7 @@ def generate_comic_script(idea: str) -> ComicScript | None:
 - title과 dialogue는 반드시 한국어, description은 반드시 영어로 작성"""
     try:
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             contents=f"아이디어: {idea}",
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
@@ -144,33 +144,33 @@ def generate_comic_script(idea: str) -> ComicScript | None:
         return None
 
 
-# ─── 2단계: 이미지 생성 ───────────────────────────────────────────────
+# ─── 2단계: 이미지 생성 (Gemini 이미지 모델) ─────────────────────────
 def generate_panel_image(description: str, panel_num: int) -> bytes | None:
-    """Imagen 4로 컷 이미지 생성 → PNG bytes 반환"""
     client = get_client()
     prompt = (
         f"cute cartoon comic strip panel {panel_num} of 4, "
         f"children's book illustration style, colorful, simple background, "
-        f"{description}"
+        f"no text, no letters, {description}"
     )
     try:
-        response = client.models.generate_images(
-            model="imagen-4.0-generate-001",
-            prompt=prompt,
-            config=types.GenerateImagesConfig(
-                number_of_images=1,
-                aspect_ratio="1:1",
+        response = client.models.generate_content(
+            model="gemini-2.5-flash-preview-05-20",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=["IMAGE", "TEXT"],
             ),
         )
-        return response.generated_images[0].image.image_bytes
+        for part in response.candidates[0].content.parts:
+            if part.inline_data is not None:
+                return part.inline_data.data
+        return None
     except Exception as e:
         st.warning(f"⚠️ {panel_num}컷 이미지 생성 실패: {e}")
         return None
 
 
-# ─── 유틸: 4컷 합본 PNG 만들기 ───────────────────────────────────────
+# ─── 유틸: 4컷 합본 PNG ───────────────────────────────────────────────
 def build_comic_sheet(title: str, panels: list[dict]) -> bytes:
-    """4컷 이미지 + 대사를 하나의 PNG로 조합"""
     W, H_IMG = 512, 512
     PADDING = 24
     DIALOGUE_H = 72
@@ -182,9 +182,8 @@ def build_comic_sheet(title: str, panels: list[dict]) -> bytes:
 
     sheet = Image.new("RGB", (SHEET_W, SHEET_H), "#FFFAF5")
     draw = ImageDraw.Draw(sheet)
-
-    # 제목 영역
     draw.rectangle([0, 0, SHEET_W, TITLE_H], fill="#2D1B69")
+
     try:
         font_title = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc", 36)
         font_dial  = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc", 20)
@@ -193,7 +192,6 @@ def build_comic_sheet(title: str, panels: list[dict]) -> bytes:
         font_title = ImageFont.load_default()
         font_dial  = font_num = font_title
 
-    # 제목 텍스트
     tw = draw.textlength(title, font=font_title)
     draw.text(((SHEET_W - tw) / 2, 18), title, font=font_title, fill="white")
 
@@ -205,17 +203,13 @@ def build_comic_sheet(title: str, panels: list[dict]) -> bytes:
         x0 = PADDING + col * (W + PADDING)
         y0 = TITLE_H + PADDING + row * (CELL_H + PADDING)
 
-        # 컷 배경 카드
         draw.rounded_rectangle([x0 - 4, y0 - 4, x0 + W + 4, y0 + CELL_H + 4],
-                                radius=16, fill="white",
-                                outline="#D4ABFF", width=3)
+                                radius=16, fill="white", outline="#D4ABFF", width=3)
 
-        # 컷 번호 뱃지
         badge_r = 18
         draw.ellipse([x0 + 8, y0 + 8, x0 + 8 + badge_r*2, y0 + 8 + badge_r*2], fill="#2D1B69")
         draw.text((x0 + 8 + badge_r - 8, y0 + 8 + 4), str(i+1), font=font_num, fill="white")
 
-        # 이미지
         img_bytes = panel.get("image_bytes")
         if img_bytes:
             try:
@@ -226,14 +220,12 @@ def build_comic_sheet(title: str, panels: list[dict]) -> bytes:
                 draw.text((x0+W//2-40, y0+H_IMG//2), "이미지 없음", font=font_dial, fill="#9B7CC8")
         else:
             draw.rectangle([x0, y0, x0+W, y0+H_IMG], fill="#F5EEFF")
-            draw.text((x0+W//2-60, y0+H_IMG//2), "이미지를 생성 중...", font=font_dial, fill="#9B7CC8")
+            draw.text((x0+W//2-60, y0+H_IMG//2), "이미지 없음", font=font_dial, fill="#9B7CC8")
 
-        # 대사 배경
         dial_y = y0 + H_IMG + 8
         draw.rounded_rectangle([x0 + 4, dial_y, x0 + W - 4, dial_y + DIALOGUE_H - 4],
                                 radius=10, fill="#F5EEFF")
 
-        # 대사 텍스트 (줄바꿈 처리)
         dialogue = panel.get("dialogue", "")
         max_chars = 22
         lines = []
@@ -242,7 +234,8 @@ def build_comic_sheet(title: str, panels: list[dict]) -> bytes:
             dialogue = dialogue[max_chars:]
         lines.append(dialogue)
         for li, line in enumerate(lines[:2]):
-            draw.text((x0 + 12, dial_y + 8 + li * 28), f"💬 {line}" if li == 0 else f"    {line}",
+            draw.text((x0 + 12, dial_y + 8 + li * 28),
+                      f"💬 {line}" if li == 0 else f"    {line}",
                       font=font_dial, fill="#2D1B69")
 
     buf = io.BytesIO()
@@ -364,7 +357,7 @@ elif st.session_state.stage == "editing":
 
 
 # ════════════════════════════════════════════════════════════════════
-# 3단계: 이미지 생성 (drawing)
+# 3단계: 이미지 생성
 # ════════════════════════════════════════════════════════════════════
 elif st.session_state.stage == "drawing":
     final = st.session_state.final
@@ -405,7 +398,6 @@ elif st.session_state.stage == "done":
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 4컷 미리보기
     st.markdown("### 📖 완성된 만화")
     story_labels = ["기","승","전","결"]
     preview_cols = st.columns(4)
@@ -418,24 +410,20 @@ elif st.session_state.stage == "done":
             st.caption(f"**{i+1}컷 ({story_labels[i]})** {panel['dialogue']}")
 
     st.markdown("---")
-
-    # ── 다운로드 섹션 ──────────────────────────────────────────────
     st.markdown("### ⬇️ 다운로드")
     dl_cols = st.columns([1, 1, 1])
 
-    # (A) 합본 PNG 다운로드
     with dl_cols[0]:
         with st.spinner("합본 이미지 만드는 중..."):
             sheet_bytes = build_comic_sheet(title, final["panels"])
         st.download_button(
-            label="🖼️ 4컷 합본 PNG 다운로드",
+            label="🖼️ 4컷 합본 PNG",
             data=sheet_bytes,
             file_name=f"{title}_4컷만화.png",
             mime="image/png",
             use_container_width=True,
         )
 
-    # (B) 컷별 PNG ZIP 다운로드
     with dl_cols[1]:
         zip_buf = io.BytesIO()
         with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -444,20 +432,19 @@ elif st.session_state.stage == "done":
                     zf.writestr(f"{title}_{i+1}컷.png", panel["image_bytes"])
         zip_buf.seek(0)
         st.download_button(
-            label="📦 컷별 PNG ZIP 다운로드",
+            label="📦 컷별 PNG ZIP",
             data=zip_buf.getvalue(),
             file_name=f"{title}_컷별이미지.zip",
             mime="application/zip",
             use_container_width=True,
         )
 
-    # (C) 시나리오 TXT 다운로드
     with dl_cols[2]:
         script_txt = f"📖 {title}\n\n"
         for i, p in enumerate(final["panels"]):
             script_txt += f"[{i+1}컷 - {story_labels[i]}]\n장면: {p['description']}\n대사: {p['dialogue']}\n\n"
         st.download_button(
-            label="📄 시나리오 TXT 다운로드",
+            label="📄 시나리오 TXT",
             data=script_txt.encode("utf-8"),
             file_name=f"{title}_시나리오.txt",
             mime="text/plain",
