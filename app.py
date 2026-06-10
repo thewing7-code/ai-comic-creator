@@ -30,6 +30,7 @@ div[data-testid="stTextInput"] label{display:none!important;height:0!important;m
 div[data-testid="stTextInput"]{margin-top:0!important;padding-top:0!important;}
 div[data-testid="stTextInput"]:has(input#idea_input){margin-top:-2rem!important;}
 .big-input input{background:white!important;font-size:1.1rem!important;padding:1rem 1.2rem!important;height:3.2rem!important;border-radius:14px!important;border:2.5px solid #D4ABFF!important;box-shadow:0 2px 12px rgba(100,60,180,.08)!important;}
+div[data-testid="stTextInput"]:has(input#idea_input) input{height:3.8rem!important;font-size:1.15rem!important;padding:1.2rem 1.4rem!important;border-radius:16px!important;border:3px solid #C4A0FF!important;box-shadow:0 4px 16px rgba(100,60,180,.12)!important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -153,12 +154,20 @@ def generate_panel_image(description_en: str, character_desc: str,
         for part in response.parts:
             if part.inline_data is not None:
                 raw = part.inline_data.data
+                # base64 string이면 decode
+                if isinstance(raw, str):
+                    import base64 as b64
+                    raw = b64.b64decode(raw)
                 # 말풍선 합성
-                img = Image.open(io.BytesIO(raw)).convert("RGB")
-                img_with_bubble = add_speech_bubble(img, dialogue)
-                buf = io.BytesIO()
-                img_with_bubble.save(buf, format="PNG")
-                return buf.getvalue()
+                try:
+                    img = Image.open(io.BytesIO(raw)).convert("RGB")
+                    img_with_bubble = add_speech_bubble(img, dialogue)
+                    buf = io.BytesIO()
+                    img_with_bubble.save(buf, format="PNG")
+                    return buf.getvalue()
+                except Exception as e2:
+                    st.warning(f"말풍선 합성 오류: {e2}")
+                    return raw
         return None
     except Exception as e:
         st.warning(f"⚠️ {panel_num}컷 이미지 생성 실패: {e}")
@@ -441,20 +450,9 @@ elif st.session_state.stage == "done":
     for i, panel in enumerate(final["panels"]):
         with grid[i]:
             if panel["image_bytes"]:
-                try:
-                    disp_img = Image.open(io.BytesIO(panel["image_bytes"])).convert("RGB")
-                    max_w = 480
-                    if disp_img.width > max_w:
-                        ratio = max_w / disp_img.width
-                        disp_img = disp_img.resize((max_w, int(disp_img.height * ratio)), Image.LANCZOS)
-                    disp_buf = io.BytesIO()
-                    disp_img.save(disp_buf, format="PNG")
-                    st.image(disp_buf.getvalue(), use_container_width=True,
-                             caption=f"{i+1}컷 ({story_labels[i]})")
-                except Exception:
-                    st.image(panel["image_bytes"], use_container_width=True)
+                st.image(panel["image_bytes"], use_container_width=True)
             else:
-                st.markdown(f'<div style="background:#F5EEFF;border-radius:12px;height:200px;display:flex;align-items:center;justify-content:center;font-size:2rem">🖼️</div>', unsafe_allow_html=True)
+                st.markdown('<div style="background:#F5EEFF;border-radius:12px;height:200px;display:flex;align-items:center;justify-content:center;font-size:2rem">🖼️</div>', unsafe_allow_html=True)
 
     st.markdown("---")
 
