@@ -184,6 +184,28 @@ def add_speech_bubble(img: Image.Image, dialogue: str, panel_idx: int = 0) -> Im
         tx_text = bx + (bubble_w - tw) / 2
         draw.text((tx_text, text_start_y + li * line_h), line, font=font, fill="#1A0050")
 
+    # 오른쪽 하단 컷 번호 뱃지 (예: 1/4)
+    badge_text = f"{panel_idx + 1}/4"
+    badge_font_size = max(16, W // 28)
+    try:
+        badge_font = ImageFont.truetype(font_paths[0], badge_font_size)
+    except Exception:
+        badge_font = ImageFont.load_default()
+    try:
+        btw = draw.textlength(badge_text, font=badge_font)
+    except Exception:
+        btw = badge_font_size * len(badge_text) * 0.6
+    bpad = 6
+    brect_w = int(btw) + bpad * 2
+    brect_h = badge_font_size + bpad * 2
+    brx = W - brect_w - 10
+    bry = H - brect_h - 10
+    draw.rounded_rectangle(
+        [brx, bry, brx + brect_w, bry + brect_h],
+        radius=8, fill="#2D1B69"
+    )
+    draw.text((brx + bpad, bry + bpad), badge_text, font=badge_font, fill="white")
+
     return img
 
 def generate_all_panels(panels: list[dict], character_desc: str,
@@ -204,7 +226,7 @@ def generate_all_panels(panels: list[dict], character_desc: str,
         f"Same face, same hair, same clothes throughout all panels. "
         f"Panel layout (2 columns, 2 rows): {scenes_text}. "
         f"Include visible panel borders dividing the 4 panels. "
-        f"Leave empty space at the bottom of each panel for speech bubbles. "
+        f"Fill the entire panel with the scene illustration, no empty spaces. "
         f"No text, no letters, no writing anywhere in the image. Clean white panel borders."
     )
 
