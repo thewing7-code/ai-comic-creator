@@ -128,12 +128,16 @@ def add_speech_bubble(img: Image.Image, dialogue: str, panel_idx: int = 0) -> Im
     line_h = FONT_SIZE + 6
     bubble_h = n_lines * line_h + 28
 
-    # 컷별 말풍선 레이아웃 (위치·크기·꼬리 방향 다양화)
+    # 컷별 말풍선 레이아웃
+    # 1컷: 왼쪽 위 배치 → 오른쪽 아래로 꼬리
+    # 2컷: 오른쪽 위 배치 → 왼쪽 아래로 꼬리
+    # 3컷: 왼쪽 위 배치 → 오른쪽 아래로 꼬리
+    # 4컷: 오른쪽 위 배치 → 왼쪽 아래로 꼬리
     layouts = [
-        {"bx_r": 0.04, "by_r": 0.60, "bw_r": 0.58, "tail_xr": 0.22, "tail_side": "left"},
-        {"bx_r": 0.38, "by_r": 0.60, "bw_r": 0.58, "tail_xr": 0.78, "tail_side": "right"},
-        {"bx_r": 0.04, "by_r": 0.63, "bw_r": 0.54, "tail_xr": 0.18, "tail_side": "left"},
-        {"bx_r": 0.42, "by_r": 0.63, "bw_r": 0.54, "tail_xr": 0.72, "tail_side": "right"},
+        {"bx_r": 0.04, "by_r": 0.06, "bw_r": 0.58, "tail_xr": 0.56, "tail_side": "right"},
+        {"bx_r": 0.38, "by_r": 0.06, "bw_r": 0.58, "tail_xr": 0.44, "tail_side": "left"},
+        {"bx_r": 0.04, "by_r": 0.06, "bw_r": 0.58, "tail_xr": 0.56, "tail_side": "right"},
+        {"bx_r": 0.38, "by_r": 0.06, "bw_r": 0.58, "tail_xr": 0.44, "tail_side": "left"},
     ]
     lay = layouts[panel_idx % 4]
     bubble_w = int(W * lay["bw_r"])
@@ -146,19 +150,29 @@ def add_speech_bubble(img: Image.Image, dialogue: str, panel_idx: int = 0) -> Im
         radius=16, fill="white", outline="#5B2DB0", width=3
     )
 
-    # 꼬리: 말풍선 하단에서 화자 방향으로
+    # 꼬리: 말풍선 하단에서 대각선 아래 방향으로
     tail_xr = lay["tail_xr"]
     tail_side = lay["tail_side"]
-    tx = max(bx + 16, min(int(W * tail_xr), bx + bubble_w - 16))
-    ty_top = by + bubble_h
-    ty_tip = min(ty_top + 22, H - 4)
-    offset = -14 if tail_side == "left" else 14
+    # 꼬리 시작점: 말풍선 하단 좌측 또는 우측 끝
+    if tail_side == "right":
+        # 오른쪽 아래로 꼬리
+        tx_base_l = bx + bubble_w - 28
+        tx_base_r = bx + bubble_w - 8
+        tx_tip    = min(bx + bubble_w + 24, W - 8)
+    else:
+        # 왼쪽 아래로 꼬리
+        tx_base_l = bx + 8
+        tx_base_r = bx + 28
+        tx_tip    = max(bx - 24, 8)
+    ty_base = by + bubble_h
+    ty_tip  = min(ty_base + 30, H - 8)
+
     draw.polygon(
-        [(tx + offset, ty_top), (tx - offset, ty_top), (tx, ty_tip)],
+        [(tx_base_l, ty_base), (tx_base_r, ty_base), (tx_tip, ty_tip)],
         fill="white"
     )
-    draw.line([(tx + offset, ty_top), (tx, ty_tip)], fill="#5B2DB0", width=3)
-    draw.line([(tx - offset, ty_top), (tx, ty_tip)], fill="#5B2DB0", width=3)
+    draw.line([(tx_base_l, ty_base), (tx_tip, ty_tip)], fill="#5B2DB0", width=3)
+    draw.line([(tx_base_r, ty_base), (tx_tip, ty_tip)], fill="#5B2DB0", width=3)
 
     # 텍스트 가운데 정렬
     text_start_y = by + 12
