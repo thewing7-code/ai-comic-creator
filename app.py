@@ -1,76 +1,58 @@
 import streamlit as st
-import os, io, base64, zipfile, requests as req
+import os, io, base64, zipfile, requests as req, textwrap
 from google import genai
 from google.genai import types
 from pydantic import BaseModel
 from PIL import Image, ImageDraw, ImageFont
 
-# ─── 페이지 설정 ──────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="AI 4컷 만화 창작소",
-    page_icon="🎨",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
+st.set_page_config(page_title="AI 4컷 만화 창작소", page_icon="🎨", layout="wide", initial_sidebar_state="collapsed")
 
-# ─── CSS ──────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700;900&family=Gaegu:wght@400;700&display=swap');
-.stApp { background:linear-gradient(135deg,#FFF9F0 0%,#FFF0F5 50%,#F0F5FF 100%); font-family:'Noto Sans KR',sans-serif; }
-.hero-header { text-align:center; padding:1.8rem 1rem 1rem; }
-.hero-title { font-family:'Gaegu',cursive; font-size:clamp(2rem,5vw,3.2rem); font-weight:700; color:#2D1B69; margin:0; line-height:1.2; }
-.hero-title span { color:#FF6B9D; }
-.hero-sub { font-size:clamp(0.85rem,2vw,1rem); color:#6B5B8E; margin-top:0.4rem; }
-.idea-card { background:white; border-radius:20px; padding:1.6rem 1.8rem; box-shadow:0 4px 24px rgba(100,60,180,.10); border:2.5px solid #E8D5FF; margin-bottom:1.4rem; }
-.card-label { font-size:1.05rem; font-weight:700; color:#2D1B69; margin-bottom:0.5rem; }
-.panel-card { background:white; border-radius:16px; padding:1rem 1.2rem 1.2rem; box-shadow:0 4px 18px rgba(100,60,180,.09); border:2.5px solid #E8D5FF; margin-bottom:0.8rem; position:relative; }
-.panel-num { position:absolute; top:-13px; left:14px; background:#2D1B69; color:white; font-family:'Gaegu',cursive; font-size:.95rem; font-weight:700; border-radius:50%; width:26px; height:26px; display:flex; align-items:center; justify-content:center; }
-.field-label { font-size:.75rem; font-weight:700; color:#9B7CC8; text-transform:uppercase; letter-spacing:.05em; margin:.5rem 0 .15rem; }
-.img-box { border-radius:12px; border:2px dashed #D4ABFF; background:linear-gradient(135deg,#F5EEFF,#FFEEF7); min-height:160px; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:.3rem; margin-bottom:.6rem; }
-.step-badge { display:inline-flex; align-items:center; gap:.4rem; background:#F0E8FF; border-radius:30px; padding:.25rem .9rem; font-size:.82rem; font-weight:700; color:#7B3FDB; margin-bottom:.8rem; }
-.step-dot { width:7px;height:7px;background:#7B3FDB;border-radius:50%; }
-.style-btn { background:white; border:2px solid #E8D5FF; border-radius:14px; padding:.6rem .8rem; text-align:center; cursor:pointer; transition:all .2s; }
-.style-btn.selected { border-color:#7B3FDB; background:#F5EEFF; }
-.success-banner { background:linear-gradient(135deg,#2D1B69,#7B3FDB); color:white; border-radius:20px; padding:2rem; text-align:center; font-family:'Gaegu',cursive; font-size:1.4rem; margin-top:1rem; box-shadow:0 8px 32px rgba(123,63,219,.35); }
-.success-banner .big { font-size:3rem; display:block; margin-bottom:.4rem; }
-.success-banner .sub { font-size:.95rem; font-family:'Noto Sans KR',sans-serif; opacity:.85; margin-top:.3rem; }
-.comic-grid { display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin:1rem 0; }
-.comic-cell { border-radius:14px; overflow:hidden; border:2.5px solid #E8D5FF; background:white; }
-.comic-cell img { width:100%; display:block; }
-.comic-caption { padding:.5rem .8rem; font-size:.85rem; color:#2D1B69; font-weight:600; background:#F5EEFF; }
-div[data-testid="stButton"]>button { border-radius:50px!important; font-family:'Gaegu',cursive!important; font-weight:700!important; font-size:1.05rem!important; padding:.55rem 2.2rem!important; border:none!important; transition:transform .15s,box-shadow .15s!important; }
-div[data-testid="stButton"]>button:hover { transform:translateY(-2px)!important; box-shadow:0 6px 18px rgba(100,60,180,.25)!important; }
-div[data-testid="stTextInput"] input, div[data-testid="stTextArea"] textarea { border-radius:10px!important; border:2px solid #D4ABFF!important; font-family:'Noto Sans KR',sans-serif!important; font-size:.9rem!important; }
-div[data-testid="stSpinner"] p { font-family:'Gaegu',cursive!important; color:#7B3FDB!important; font-size:1.1rem!important; }
-@media(max-width:640px){ .hero-title{font-size:1.8rem;} .comic-grid{grid-template-columns:1fr;} }
+.stApp{background:linear-gradient(135deg,#FFF9F0 0%,#FFF0F5 50%,#F0F5FF 100%);font-family:'Noto Sans KR',sans-serif;}
+.hero-header{text-align:center;padding:1.8rem 1rem 1rem;}
+.hero-title{font-family:'Gaegu',cursive;font-size:clamp(2rem,5vw,3.2rem);font-weight:700;color:#2D1B69;margin:0;line-height:1.2;}
+.hero-title span{color:#FF6B9D;}
+.hero-sub{font-size:clamp(0.85rem,2vw,1rem);color:#6B5B8E;margin-top:0.4rem;}
+.idea-card{background:white;border-radius:20px;padding:1.6rem 1.8rem;box-shadow:0 4px 24px rgba(100,60,180,.10);border:2.5px solid #E8D5FF;margin-bottom:1.4rem;}
+.card-label{font-size:1.05rem;font-weight:700;color:#2D1B69;margin-bottom:0.5rem;}
+.step-badge{display:inline-flex;align-items:center;gap:.4rem;background:#F0E8FF;border-radius:30px;padding:.25rem .9rem;font-size:.82rem;font-weight:700;color:#7B3FDB;margin-bottom:.8rem;}
+.step-dot{width:7px;height:7px;background:#7B3FDB;border-radius:50%;}
+.success-banner{background:linear-gradient(135deg,#2D1B69,#7B3FDB);color:white;border-radius:20px;padding:2rem;text-align:center;font-family:'Gaegu',cursive;font-size:1.4rem;margin-top:1rem;box-shadow:0 8px 32px rgba(123,63,219,.35);}
+.success-banner .big{font-size:3rem;display:block;margin-bottom:.4rem;}
+.success-banner .sub{font-size:.95rem;font-family:'Noto Sans KR',sans-serif;opacity:.85;margin-top:.3rem;}
+div[data-testid="stButton"]>button{border-radius:50px!important;font-family:'Gaegu',cursive!important;font-weight:700!important;font-size:1.05rem!important;padding:.55rem 2.2rem!important;border:none!important;transition:transform .15s,box-shadow .15s!important;}
+div[data-testid="stButton"]>button:hover{transform:translateY(-2px)!important;box-shadow:0 6px 18px rgba(100,60,180,.25)!important;}
+div[data-testid="stTextInput"] input,div[data-testid="stTextArea"] textarea{border-radius:10px!important;border:2px solid #D4ABFF!important;font-family:'Noto Sans KR',sans-serif!important;font-size:.9rem!important;}
+/* 빈칸 제거 */
+div[data-testid="stTextInput"] label{display:none!important;}
+div[data-testid="stTextInput"]{margin-top:0!important;padding-top:0!important;}
 </style>
 """, unsafe_allow_html=True)
 
-# ─── 그림 스타일 목록 ─────────────────────────────────────────────────
 STYLES = {
-    "🖍️ 귀여운 만화": "cute cartoon style, bright colors, simple lines, kawaii",
-    "🎨 수채화": "watercolor painting style, soft colors, gentle brushstrokes, artistic",
-    "✏️ 연필 스케치": "pencil sketch style, hand-drawn, black and white with light shading",
-    "🌸 일본 애니": "Japanese anime style, expressive eyes, vibrant colors, manga",
-    "📚 동화책": "children's picture book illustration, warm colors, friendly characters",
-    "🎭 팝아트": "pop art style, bold colors, comic book dots, vivid contrast",
+    "🖍️ 귀여운 만화": "cute kawaii cartoon style, bright colors, simple clean lines",
+    "🎨 수채화": "soft watercolor illustration style, gentle pastel colors, artistic",
+    "✏️ 연필 스케치": "pencil sketch style, hand-drawn lines, light shading, black and white",
+    "🌸 일본 애니": "Japanese anime style, expressive eyes, vibrant colors, manga art",
+    "📚 동화책": "children's picture book illustration, warm friendly colors",
+    "🎭 팝아트": "pop art style, bold outlines, bright comic book colors",
 }
 
-# ─── Pydantic 스키마 ──────────────────────────────────────────────────
 class ComicPanel(BaseModel):
-    description_ko: str   # 장면 묘사 (한글)
-    description_en: str   # 이미지 생성용 영어 프롬프트
-    dialogue: str         # 대사 (한글)
+    description_ko: str
+    description_en: str
+    dialogue: str
 
 class ComicScript(BaseModel):
     title: str
+    character_desc: str  # 주인공 외모 고정 묘사 (영어)
     panel1: ComicPanel
     panel2: ComicPanel
     panel3: ComicPanel
     panel4: ComicPanel
 
-# ─── API 클라이언트 ───────────────────────────────────────────────────
 def get_client():
     api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -78,16 +60,15 @@ def get_client():
         st.stop()
     return genai.Client(api_key=api_key)
 
-# ─── 시나리오 생성 ────────────────────────────────────────────────────
 def generate_comic_script(idea: str) -> ComicScript | None:
     client = get_client()
-    system_prompt = """너는 초등학생을 위한 재미있는 4컷 만화 작가야.
-아이디어를 받아 기승전결 구조의 4컷 만화 시나리오를 만들어 줘.
-각 컷마다:
-- description_ko: 장면을 한국어로 생생하게 묘사 (2~3문장)
-- description_en: 이미지 생성용 영어 프롬프트 (구체적인 장면, 캐릭터, 배경 묘사)
-- dialogue: 초등학생 말투의 자연스러운 한국어 대사 (1~2문장)
-title과 dialogue, description_ko는 한국어, description_en은 영어로 작성."""
+    system_prompt = """너는 초등학생을 위한 4컷 만화 작가야.
+아이디어로 기승전결 시나리오를 만들어줘.
+- character_desc: 주인공의 외모를 영어로 구체적으로 묘사 (예: a boy with short black hair, wearing a yellow t-shirt)
+- 각 컷의 description_ko: 한국어 장면 묘사 (2문장)
+- 각 컷의 description_en: 이미지 생성용 영어 프롬프트 (반드시 character_desc의 주인공 포함)
+- 각 컷의 dialogue: 한국어 대사 (짧게 1문장, 20자 이내)
+title, description_ko, dialogue는 한국어. character_desc, description_en은 영어."""
     try:
         response = client.models.generate_content(
             model="gemini-2.5-flash",
@@ -96,7 +77,7 @@ title과 dialogue, description_ko는 한국어, description_en은 영어로 작�
                 system_instruction=system_prompt,
                 response_mime_type="application/json",
                 response_schema=ComicScript,
-                temperature=1.2,
+                temperature=1.0,
             ),
         )
         return response.parsed
@@ -104,119 +85,164 @@ title과 dialogue, description_ko는 한국어, description_en은 영어로 작�
         st.error(f"❌ 시나리오 생성 오류: {e}")
         return None
 
-# ─── 이미지 생성 ──────────────────────────────────────────────────────
-def generate_panel_image(description_en: str, panel_num: int, style_prompt: str) -> bytes | None:
+def add_speech_bubble(img: Image.Image, dialogue: str) -> Image.Image:
+    """이미지 하단에 말풍선과 한글 대사를 합성"""
+    W, H = img.size
+    bubble_h = max(70, int(H * 0.18))
+    new_img = Image.new("RGB", (W, H + bubble_h), "#FFFAF5")
+    new_img.paste(img, (0, 0))
+    draw = ImageDraw.Draw(new_img)
+
+    # 말풍선 배경
+    margin = 12
+    draw.rounded_rectangle([margin, H + 6, W - margin, H + bubble_h - 6],
+                            radius=16, fill="white", outline="#7B3FDB", width=3)
+
+    # 말풍선 꼬리
+    tail_x = W // 2
+    draw.polygon([(tail_x - 12, H + 6), (tail_x + 12, H + 6), (tail_x, H - 8)],
+                 fill="white")
+    draw.line([(tail_x - 12, H + 6), (tail_x, H - 8)], fill="#7B3FDB", width=2)
+    draw.line([(tail_x + 12, H + 6), (tail_x, H - 8)], fill="#7B3FDB", width=2)
+
+    # 한글 폰트
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+                                   max(18, int(bubble_h * 0.32)))
+    except Exception:
+        font = ImageFont.load_default()
+
+    # 텍스트 줄바꿈
+    max_chars = 16
+    lines = textwrap.wrap(dialogue, width=max_chars)[:2]
+    total_h = len(lines) * (font.size + 4)
+    start_y = H + (bubble_h - total_h) // 2 + 4
+
+    for li, line in enumerate(lines):
+        tw = draw.textlength(line, font=font)
+        draw.text(((W - tw) / 2, start_y + li * (font.size + 4)),
+                  line, font=font, fill="#2D1B69")
+    return new_img
+
+def generate_panel_image(description_en: str, character_desc: str,
+                          panel_num: int, style_prompt: str,
+                          dialogue: str) -> bytes | None:
     client = get_client()
     prompt = (
         f"{style_prompt}, comic strip panel {panel_num} of 4, "
-        f"simple background, no text, no letters, {description_en}"
+        f"main character: {character_desc}, "
+        f"simple clean background, no text, no letters, no watermark, "
+        f"{description_en}"
     )
     try:
         response = client.models.generate_content(
             model="gemini-2.5-flash-image",
             contents=prompt,
-            config=types.GenerateContentConfig(
-                response_modalities=["IMAGE"],
-            ),
+            config=types.GenerateContentConfig(response_modalities=["IMAGE"]),
         )
         for part in response.parts:
             if part.inline_data is not None:
-                return part.inline_data.data
+                raw = part.inline_data.data
+                # 말풍선 합성
+                img = Image.open(io.BytesIO(raw)).convert("RGB")
+                img_with_bubble = add_speech_bubble(img, dialogue)
+                buf = io.BytesIO()
+                img_with_bubble.save(buf, format="PNG")
+                return buf.getvalue()
         return None
     except Exception as e:
         st.warning(f"⚠️ {panel_num}컷 이미지 생성 실패: {e}")
         return None
 
-# ─── 4컷 합본 PNG ─────────────────────────────────────────────────────
 def build_comic_sheet(title: str, panels: list[dict]) -> bytes:
-    W, H_IMG = 512, 512
-    PADDING = 24
-    DIALOGUE_H = 72
-    CELL_H = H_IMG + DIALOGUE_H + PADDING * 2
-    TITLE_H = 80
+    """4컷 이미지를 2×2로 꽉 차게 붙이기"""
+    PADDING = 8
+    TITLE_H = 70
     COLS, ROWS = 2, 2
-    SHEET_W = COLS * W + (COLS + 1) * PADDING
+
+    # 이미지 크기 통일
+    CELL_W, CELL_H = 540, 480
+
+    SHEET_W = COLS * CELL_W + (COLS + 1) * PADDING
     SHEET_H = TITLE_H + ROWS * CELL_H + (ROWS + 1) * PADDING
 
-    sheet = Image.new("RGB", (SHEET_W, SHEET_H), "#FFFAF5")
+    sheet = Image.new("RGB", (SHEET_W, SHEET_H), "#F5EEFF")
     draw = ImageDraw.Draw(sheet)
     draw.rectangle([0, 0, SHEET_W, TITLE_H], fill="#2D1B69")
+
     try:
-        font_title = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc", 36)
-        font_dial  = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc", 20)
-        font_num   = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc", 26)
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc", 32)
+        font_num   = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc", 22)
     except Exception:
         font_title = ImageFont.load_default()
-        font_dial  = font_num = font_title
+        font_num = font_title
 
     tw = draw.textlength(title, font=font_title)
-    draw.text(((SHEET_W - tw) / 2, 18), title, font=font_title, fill="white")
+    draw.text(((SHEET_W - tw) / 2, 16), title, font=font_title, fill="white")
+
+    story_labels = ["기","승","전","결"]
 
     for i, panel in enumerate(panels[:4]):
         col = i % COLS
         row = i // COLS
-        x0 = PADDING + col * (W + PADDING)
+        x0 = PADDING + col * (CELL_W + PADDING)
         y0 = TITLE_H + PADDING + row * (CELL_H + PADDING)
-        draw.rounded_rectangle([x0-4, y0-4, x0+W+4, y0+CELL_H+4], radius=16, fill="white", outline="#D4ABFF", width=3)
-        badge_r = 18
-        draw.ellipse([x0+8, y0+8, x0+8+badge_r*2, y0+8+badge_r*2], fill="#2D1B69")
-        draw.text((x0+8+badge_r-8, y0+8+4), str(i+1), font=font_num, fill="white")
+
         img_bytes = panel.get("image_bytes")
         if img_bytes:
             try:
-                img = Image.open(io.BytesIO(img_bytes)).convert("RGB").resize((W, H_IMG))
+                img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                img = img.resize((CELL_W, CELL_H), Image.LANCZOS)
                 sheet.paste(img, (x0, y0))
             except Exception:
-                draw.rectangle([x0, y0, x0+W, y0+H_IMG], fill="#F5EEFF")
+                draw.rectangle([x0, y0, x0+CELL_W, y0+CELL_H], fill="#E8D5FF")
         else:
-            draw.rectangle([x0, y0, x0+W, y0+H_IMG], fill="#F5EEFF")
-        dial_y = y0 + H_IMG + 8
-        draw.rounded_rectangle([x0+4, dial_y, x0+W-4, dial_y+DIALOGUE_H-4], radius=10, fill="#F5EEFF")
-        dialogue = panel.get("dialogue", "")
-        max_chars = 22
-        lines = []
-        while len(dialogue) > max_chars:
-            lines.append(dialogue[:max_chars])
-            dialogue = dialogue[max_chars:]
-        lines.append(dialogue)
-        for li, line in enumerate(lines[:2]):
-            draw.text((x0+12, dial_y+8+li*28), f"💬 {line}" if li==0 else f"    {line}", font=font_dial, fill="#2D1B69")
+            draw.rectangle([x0, y0, x0+CELL_W, y0+CELL_H], fill="#E8D5FF")
+
+        # 컷 번호 뱃지
+        badge_r = 16
+        draw.ellipse([x0+6, y0+6, x0+6+badge_r*2, y0+6+badge_r*2], fill="#2D1B69")
+        draw.text((x0+6+badge_r-7, y0+6+3), str(i+1), font=font_num, fill="white")
 
     buf = io.BytesIO()
     sheet.save(buf, format="PNG", optimize=True)
     return buf.getvalue()
 
-# ─── 패들렛 업로드 ────────────────────────────────────────────────────
-def upload_to_padlet(title: str, sheet_bytes: bytes, student_name: str) -> bool:
+def upload_to_padlet(title: str, sheet_bytes: bytes, student_name: str) -> tuple[bool, str]:
+    """이미지를 imgur에 올린 뒤 패들렛에 링크로 포스팅"""
     try:
         padlet_key = st.secrets.get("PADLET_API_KEY") or os.environ.get("PADLET_API_KEY")
         board_id   = st.secrets.get("PADLET_BOARD_ID") or os.environ.get("PADLET_BOARD_ID", "h1koxptryz9hcl3p")
 
-        # 이미지를 base64 data URL로 변환
-        img_b64 = base64.b64encode(sheet_bytes).decode("utf-8")
-        data_url = f"data:image/png;base64,{img_b64}"
+        # 1) Imgur 업로드 (익명, 무료)
+        imgur_resp = req.post(
+            "https://api.imgur.com/3/image",
+            headers={"Authorization": "Client-ID 546c25a59c58ad7"},
+            data={"image": base64.b64encode(sheet_bytes).decode("utf-8"), "type": "base64"},
+            timeout=30,
+        )
+        if imgur_resp.status_code != 200:
+            return False, f"이미지 호스팅 실패 ({imgur_resp.status_code})"
 
-        headers = {
-            "X-API-KEY": padlet_key,
-            "Content-Type": "application/json",
-        }
+        image_url = imgur_resp.json()["data"]["link"]
+
+        # 2) 패들렛 포스팅
+        headers = {"X-API-KEY": padlet_key, "Content-Type": "application/json"}
         payload = {
             "subject": f"🎨 {student_name}의 만화: {title}",
-            "body": f"AI 4컷 만화 창작소에서 만들었어요!\n제목: {title}",
-            "attachment": {
-                "url": data_url,
-            }
+            "body": f"AI 4컷 만화 창작소에서 만들었어요! 제목: {title}",
+            "attachment": {"url": image_url},
         }
         resp = req.post(
             f"https://api.padlet.com/v1/boards/{board_id}/posts",
-            headers=headers,
-            json=payload,
-            timeout=30,
+            headers=headers, json=payload, timeout=30,
         )
-        return resp.status_code in (200, 201)
+        if resp.status_code in (200, 201):
+            return True, image_url
+        else:
+            return False, f"패들렛 오류 {resp.status_code}: {resp.text[:200]}"
     except Exception as e:
-        st.error(f"패들렛 업로드 오류: {e}")
-        return False
+        return False, str(e)
 
 # ─── 세션 초기화 ──────────────────────────────────────────────────────
 defaults = {"stage":"input","script":None,"idea":"","final":None,"selected_style":"🖍️ 귀여운 만화"}
@@ -234,19 +260,22 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════════════════
-# 1단계: 아이디어 입력
+# 1단계
 # ════════════════════════════════════════════════════════════════════
 if st.session_state.stage == "input":
     st.markdown('<div class="step-badge"><span class="step-dot"></span> 1단계 · 아이디어 입력</div>', unsafe_allow_html=True)
     st.markdown('<div class="idea-card">', unsafe_allow_html=True)
     st.markdown('<div class="card-label">💡 어떤 만화를 만들고 싶어?</div>', unsafe_allow_html=True)
 
-    idea = st.text_input("아이디어 입력", placeholder="예) 강아지가 숙제를 도와주다가 망치는 이야기",
-                         value=st.session_state.idea, key="idea_input", label_visibility="hidden")
+    idea = st.text_input("아이디어",
+                         placeholder="예) 강아지가 숙제를 도와주다가 망치는 이야기",
+                         value=st.session_state.idea,
+                         key="idea_input",
+                         label_visibility="collapsed")
 
-    examples = ["🐶 강아지가 숙제를 망치는 이야기","🚀 우주에서 점심 먹는 이야기","🌊 바다에서 보물 찾기","🤖 로봇 친구와 운동회"]
     st.markdown("**예시 아이디어를 눌러봐!**")
     cols = st.columns(4)
+    examples = ["🐶 강아지가 숙제를 망치는 이야기","🚀 우주에서 점심 먹는 이야기","🌊 바다에서 보물 찾기","🤖 로봇 친구와 운동회"]
     for i, ex in enumerate(examples):
         if cols[i].button(ex, key=f"ex_{i}", use_container_width=True):
             st.session_state.idea = ex
@@ -269,7 +298,7 @@ if st.session_state.stage == "input":
                     st.rerun()
 
 # ════════════════════════════════════════════════════════════════════
-# 2단계: 시나리오 편집 + 스타일 선택
+# 2단계
 # ════════════════════════════════════════════════════════════════════
 elif st.session_state.stage == "editing":
     script: ComicScript = st.session_state.script
@@ -277,45 +306,32 @@ elif st.session_state.stage == "editing":
 
     title_val = st.text_input("📖 만화 제목", value=script.title, key="edit_title")
 
-    # 그림 스타일 선택
     st.markdown("### 🎨 그림 스타일을 골라봐!")
     style_cols = st.columns(6)
     for i, (style_name, _) in enumerate(STYLES.items()):
         with style_cols[i]:
-            is_selected = st.session_state.selected_style == style_name
-            if st.button(
-                style_name,
-                key=f"style_{i}",
-                use_container_width=True,
-                type="primary" if is_selected else "secondary",
-            ):
+            is_sel = st.session_state.selected_style == style_name
+            if st.button(style_name, key=f"style_{i}", use_container_width=True,
+                         type="primary" if is_sel else "secondary"):
                 st.session_state.selected_style = style_name
                 st.rerun()
-
     st.markdown(f"**선택된 스타일:** {st.session_state.selected_style}")
     st.markdown("---")
 
     panels_raw = [
-        ("1컷","기", script.panel1, "🌅"),
-        ("2컷","승", script.panel2, "⚡"),
-        ("3컷","전", script.panel3, "😱"),
-        ("4컷","결", script.panel4, "🎉"),
+        ("1컷","기",script.panel1,"🌅"),
+        ("2컷","승",script.panel2,"⚡"),
+        ("3컷","전",script.panel3,"😱"),
+        ("4컷","결",script.panel4,"🎉"),
     ]
     col_l, col_r = st.columns(2)
     for idx, (num, part, panel, emoji) in enumerate(panels_raw):
         with (col_l if idx % 2 == 0 else col_r):
-            st.markdown(f"""
-            <div class="panel-card">
-              <div class="panel-num">{idx+1}</div>
-              <div style="margin-top:.6rem">
-                <div class="img-box"><span style="font-size:2rem">{emoji}</span>
-                  <span style="font-size:.75rem;color:#9B7CC8;font-weight:600">여기에 그림이 들어가요</span></div>
-              </div>
-            </div>""", unsafe_allow_html=True)
-            st.markdown(f'<div class="field-label">🎬 장면 묘사 ({num}·{part})</div>', unsafe_allow_html=True)
+            st.markdown(f"**{idx+1}컷 ({part}) {emoji}**")
+            st.markdown(f'<div style="font-size:.75rem;font-weight:700;color:#9B7CC8;margin:.3rem 0 .1rem">🎬 장면 묘사</div>', unsafe_allow_html=True)
             st.text_area("", value=panel.description_ko, key=f"edit_desc_{idx}",
-                         height=80, label_visibility="collapsed")
-            st.markdown('<div class="field-label">💬 대사</div>', unsafe_allow_html=True)
+                         height=75, label_visibility="collapsed")
+            st.markdown(f'<div style="font-size:.75rem;font-weight:700;color:#9B7CC8;margin:.3rem 0 .1rem">💬 대사 (20자 이내)</div>', unsafe_allow_html=True)
             st.text_input("", value=panel.dialogue, key=f"edit_dial_{idx}",
                           label_visibility="collapsed")
 
@@ -328,30 +344,32 @@ elif st.session_state.stage == "editing":
             st.rerun()
     with bc[2]:
         if st.button("🖌️ 만화 그리기!", use_container_width=True):
-            panels_raw2 = [script.panel1, script.panel2, script.panel3, script.panel4]
+            raw_panels = [script.panel1, script.panel2, script.panel3, script.panel4]
             final_panels = [
                 {
-                    "description_ko": st.session_state.get(f"edit_desc_{i}", panels_raw2[i].description_ko),
-                    "description_en": panels_raw2[i].description_en,
-                    "dialogue":       st.session_state.get(f"edit_dial_{i}", panels_raw2[i].dialogue),
+                    "description_ko": st.session_state.get(f"edit_desc_{i}", raw_panels[i].description_ko),
+                    "description_en": raw_panels[i].description_en,
+                    "dialogue":       st.session_state.get(f"edit_dial_{i}", raw_panels[i].dialogue),
                     "image_bytes":    None,
                 }
                 for i in range(4)
             ]
             st.session_state.final = {
-                "title":  st.session_state.get("edit_title", title_val),
-                "panels": final_panels,
-                "style":  st.session_state.selected_style,
+                "title":          st.session_state.get("edit_title", title_val),
+                "character_desc": script.character_desc,
+                "panels":         final_panels,
+                "style":          st.session_state.selected_style,
             }
             st.session_state.stage = "drawing"
             st.rerun()
 
 # ════════════════════════════════════════════════════════════════════
-# 3단계: 이미지 생성
+# 3단계
 # ════════════════════════════════════════════════════════════════════
 elif st.session_state.stage == "drawing":
     final = st.session_state.final
     style_prompt = STYLES[final["style"]]
+    character_desc = final["character_desc"]
     st.markdown('<div class="step-badge"><span class="step-dot"></span> 3단계 · 만화 그리는 중...</div>', unsafe_allow_html=True)
 
     progress_bar = st.progress(0, text="🎨 AI가 그림을 그리고 있어요...")
@@ -359,7 +377,10 @@ elif st.session_state.stage == "drawing":
 
     for i, panel in enumerate(final["panels"]):
         status_area.markdown(f"**🖌️ {i+1}컷 그리는 중... ({i+1}/4)**")
-        img_bytes = generate_panel_image(panel["description_en"], i+1, style_prompt)
+        img_bytes = generate_panel_image(
+            panel["description_en"], character_desc,
+            i+1, style_prompt, panel["dialogue"]
+        )
         final["panels"][i]["image_bytes"] = img_bytes
         progress_bar.progress((i+1)/4, text=f"✅ {i+1}컷 완료! ({i+1}/4)")
 
@@ -369,7 +390,7 @@ elif st.session_state.stage == "drawing":
     st.rerun()
 
 # ════════════════════════════════════════════════════════════════════
-# 4단계: 완성 + 2×2 그리드 + 다운로드 + 패들렛
+# 4단계
 # ════════════════════════════════════════════════════════════════════
 elif st.session_state.stage == "done":
     final = st.session_state.final
@@ -385,31 +406,26 @@ elif st.session_state.stage == "done":
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("### 📖 완성된 만화")
 
-    # 2×2 그리드 표시
+    # 2×2 그리드 (이미지 꽉 차게)
     story_labels = ["기","승","전","결"]
-    row1 = st.columns(2)
-    row2 = st.columns(2)
+    row1 = st.columns([1,1], gap="small")
+    row2 = st.columns([1,1], gap="small")
     grid = [row1[0], row1[1], row2[0], row2[1]]
 
     for i, panel in enumerate(final["panels"]):
         with grid[i]:
             if panel["image_bytes"]:
-                st.image(panel["image_bytes"], use_container_width=True)
+                st.image(panel["image_bytes"], use_container_width=True,
+                         caption=f"{i+1}컷 ({story_labels[i]})")
             else:
-                st.markdown('<div class="img-box"><span style="font-size:2rem">🖼️</span></div>', unsafe_allow_html=True)
-            st.markdown(f"""
-            <div style="background:#F5EEFF;border-radius:0 0 12px 12px;padding:.5rem .8rem;
-                        font-size:.85rem;color:#2D1B69;font-weight:600;margin-top:-8px;">
-              {i+1}컷 ({story_labels[i]}) &nbsp;💬 {panel['dialogue']}
-            </div>""", unsafe_allow_html=True)
+                st.markdown(f'<div style="background:#F5EEFF;border-radius:12px;height:200px;display:flex;align-items:center;justify-content:center;font-size:2rem">🖼️</div>', unsafe_allow_html=True)
 
     st.markdown("---")
 
-    # 합본 PNG 생성
+    # 합본 PNG
     with st.spinner("합본 이미지 만드는 중..."):
         sheet_bytes = build_comic_sheet(title, final["panels"])
 
-    # 다운로드
     st.markdown("### ⬇️ 다운로드")
     dl_cols = st.columns(3)
     with dl_cols[0]:
@@ -435,8 +451,6 @@ elif st.session_state.stage == "done":
                            use_container_width=True)
 
     st.markdown("---")
-
-    # 패들렛 업로드
     st.markdown("### 📌 패들렛에 올리기")
     student_name = st.text_input("내 이름을 입력해줘!", placeholder="예) 홍길동", key="student_name")
     pc = st.columns([1,2,1])
@@ -446,12 +460,12 @@ elif st.session_state.stage == "done":
                 st.warning("💬 이름을 먼저 입력해 줘!")
             else:
                 with st.spinner("패들렛에 올리는 중..."):
-                    ok = upload_to_padlet(title, sheet_bytes, student_name)
+                    ok, msg = upload_to_padlet(title, sheet_bytes, student_name)
                 if ok:
-                    st.success(f"🎉 {student_name}의 만화가 패들렛 갤러리에 올라갔어요!")
+                    st.success(f"🎉 {student_name}의 만화가 패들렛에 올라갔어요!")
                     st.markdown("[👉 패들렛 갤러리 보러가기](https://padlet.com/thewing71/ai-4-h1koxptryz9hcl3p)")
                 else:
-                    st.error("❌ 패들렛 업로드에 실패했어요. 선생님께 알려주세요!")
+                    st.error(f"❌ 패들렛 업로드 실패: {msg}")
 
     st.markdown("<br>", unsafe_allow_html=True)
     rc = st.columns([1,2,1])
