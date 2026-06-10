@@ -112,12 +112,20 @@ def add_speech_bubble(img: Image.Image, dialogue: str) -> Image.Image:
     draw.line([(tail_x - 14, H + 10), (tail_x, H - 4)], fill="#7B3FDB", width=2)
     draw.line([(tail_x + 14, H + 10), (tail_x, H - 4)], fill="#7B3FDB", width=2)
 
-    # 한글 폰트 (opentype)
-    try:
-        font = ImageFont.truetype(
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", FONT_SIZE
-        )
-    except Exception:
+    # 한글 폰트 - 여러 경로 순서대로 시도
+    font = None
+    font_paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "NotoSansCJK-Bold.ttc"),
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+    ]
+    for fp in font_paths:
+        try:
+            font = ImageFont.truetype(fp, FONT_SIZE)
+            break
+        except Exception:
+            continue
+    if font is None:
         font = ImageFont.load_default()
 
     # 텍스트 가운데 정렬
@@ -189,10 +197,20 @@ def build_comic_sheet(title: str, panels: list[dict]) -> bytes:
     draw = ImageDraw.Draw(sheet)
     draw.rectangle([0, 0, SHEET_W, TITLE_H], fill="#2D1B69")
 
-    try:
-        font_title = ImageFont.truetype("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", 32)
-        font_num   = ImageFont.truetype("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", 22)
-    except Exception:
+    font_title = font_num = None
+    font_paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "NotoSansCJK-Bold.ttc"),
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+    ]
+    for fp in font_paths:
+        try:
+            font_title = ImageFont.truetype(fp, 32)
+            font_num   = ImageFont.truetype(fp, 22)
+            break
+        except Exception:
+            continue
+    if font_title is None:
         font_title = ImageFont.load_default()
         font_num = font_title
 
