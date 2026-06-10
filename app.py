@@ -597,12 +597,9 @@ elif st.session_state.stage == "done":
 
     st.markdown("---")
 
-    # 합본 PNG - 전체 이미지가 있으면 그대로 사용, 없으면 조합
+    # 합본 PNG - 말풍선이 합성된 개별 컷으로 조합 (항상 build_comic_sheet 사용)
     with st.spinner("합본 이미지 만드는 중..."):
-        if st.session_state.get("_full_comic_bytes"):
-            sheet_bytes = st.session_state["_full_comic_bytes"]
-        else:
-            sheet_bytes = build_comic_sheet(title, final["panels"])
+        sheet_bytes = build_comic_sheet(title, final["panels"])
 
     st.markdown("### ⬇️ 다운로드")
     dl_cols = st.columns(3)
