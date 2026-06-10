@@ -30,7 +30,7 @@ div[data-testid="stTextInput"] label{display:none!important;height:0!important;m
 div[data-testid="stTextInput"]{margin-top:0!important;padding-top:0!important;}
 div[data-testid="stTextInput"]:has(input#idea_input){margin-top:-2rem!important;}
 .big-input input{background:white!important;font-size:1.1rem!important;padding:1rem 1.2rem!important;height:3.2rem!important;border-radius:14px!important;border:2.5px solid #D4ABFF!important;box-shadow:0 2px 12px rgba(100,60,180,.08)!important;}
-div[data-testid="stTextInput"]:has(input#idea_input) input{height:3.8rem!important;font-size:1.15rem!important;padding:1.2rem 1.4rem!important;border-radius:16px!important;border:3px solid #C4A0FF!important;box-shadow:0 4px 16px rgba(100,60,180,.12)!important;}
+div[data-testid="stTextInput"]:has(input#idea_input) input{height:4.5rem!important;font-size:1.2rem!important;padding:1.4rem 1.6rem!important;border-radius:18px!important;border:3px solid #C4A0FF!important;box-shadow:0 4px 20px rgba(100,60,180,.15)!important;background:white!important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -67,10 +67,11 @@ def generate_comic_script(idea: str) -> ComicScript | None:
     client = get_client()
     system_prompt = """너는 초등학생을 위한 4컷 만화 작가야.
 아이디어로 기승전결 시나리오를 만들어줘.
-- character_desc: 주인공의 외모를 영어로 구체적으로 묘사 (예: a boy with short black hair, wearing a yellow t-shirt)
-- 각 컷의 description_ko: 한국어 장면 묘사 (2문장)
-- 각 컷의 description_en: 이미지 생성용 영어 프롬프트 (반드시 character_desc의 주인공 포함)
-- 각 컷의 dialogue: 한국어 대사 (짧게 1문장, 20자 이내)
+규칙:
+- character_desc: 주인공 외모를 영어로 매우 구체적으로 묘사. 헤어스타일, 머리색, 눈색, 옷 색깔/스타일까지 상세히. 예: "a 10-year-old boy with short messy brown hair, big round brown eyes, wearing a blue striped t-shirt and green shorts, chubby cheeks"
+- 각 컷의 description_en: 반드시 character_desc의 주인공을 그대로 포함 + 장면 묘사. "The same character as described: [character_desc], [장면]" 형식으로 작성
+- 각 컷의 dialogue: 한국어 대사 (15자 이내로 짧게)
+- description_ko: 한국어 장면 묘사 2문장
 title, description_ko, dialogue는 한국어. character_desc, description_en은 영어."""
     try:
         response = client.models.generate_content(
@@ -153,16 +154,32 @@ def add_speech_bubble(img: Image.Image, dialogue: str) -> Image.Image:
 
     return img
 
-def generate_panel_image(description_en: str, character_desc: str,
-                          panel_num: int, style_prompt: str,
-                          dialogue: str) -> bytes | None:
+def generate_all_panels(panels: list[dict], character_desc: str,
+                        style_prompt: str) -> list[bytes | None]:
+    """4컷을 하나의 프롬프트로 한 번에 생성 → 캐릭터 일관성 보장"""
     client = get_client()
+
+    # 각 컷 장면 설명 정리
+    panel_descs = []
+    for i, p in enumerate(panels):
+        panel_descs.append(
+            f"Panel {i+1}: {p['description_en']} "
+            f"(dialogue bubble text: '{p['dialogue']}')"
+        )
+    scenes_text = " | ".join(panel_descs)
+
     prompt = (
-        f"{style_prompt}, comic strip panel {panel_num} of 4, "
-        f"main character: {character_desc}, "
-        f"simple clean background, no text, no letters, no watermark, "
-        f"{description_en}"
+        f"{style_prompt}. "
+        f"Create a single image showing a 4-panel comic strip arranged in a 2x2 grid. "
+        f"CRITICAL: Use the EXACT SAME character in ALL 4 panels: {character_desc}. "
+        f"Same face, same hair, same clothes throughout all panels. "
+        f"Each panel has a speech bubble with Korean dialogue text inside the panel. "
+        f"Panel layout (2 columns, 2 rows): {scenes_text}. "
+        f"Include visible panel borders dividing the 4 panels. "
+        f"Each panel must show a speech bubble with the dialogue text clearly readable. "
+        f"No additional text outside the speech bubbles. Clean white panel borders."
     )
+
     try:
         response = client.models.generate_content(
             model="gemini-2.5-flash-image",
@@ -172,24 +189,42 @@ def generate_panel_image(description_en: str, character_desc: str,
         for part in response.parts:
             if part.inline_data is not None:
                 raw = part.inline_data.data
-                # base64 string이면 decode
                 if isinstance(raw, str):
                     import base64 as b64
                     raw = b64.b64decode(raw)
-                # 말풍선 합성
                 try:
-                    img = Image.open(io.BytesIO(raw)).convert("RGB")
-                    img_with_bubble = add_speech_bubble(img, dialogue)
-                    buf = io.BytesIO()
-                    img_with_bubble.save(buf, format="PNG")
-                    return buf.getvalue()
+                    # 생성된 4컷 전체 이미지를 2x2로 분할
+                    full_img = Image.open(io.BytesIO(raw)).convert("RGB")
+                    W, H = full_img.size
+                    half_w, half_h = W // 2, H // 2
+
+                    panel_images = []
+                    coords = [
+                        (0, 0, half_w, half_h),          # 1컷 (좌상)
+                        (half_w, 0, W, half_h),           # 2컷 (우상)
+                        (0, half_h, half_w, H),           # 3컷 (좌하)
+                        (half_w, half_h, W, H),           # 4컷 (우하)
+                    ]
+                    for x0, y0, x1, y1 in coords:
+                        panel_img = full_img.crop((x0, y0, x1, y1))
+                        buf = io.BytesIO()
+                        panel_img.save(buf, format="PNG")
+                        panel_images.append(buf.getvalue())
+
+                    # 원본 전체 이미지도 저장 (합본 PNG 다운로드용)
+                    full_buf = io.BytesIO()
+                    full_img.save(full_buf, format="PNG")
+                    st.session_state["_full_comic_bytes"] = full_buf.getvalue()
+
+                    return panel_images
                 except Exception as e2:
-                    st.warning(f"말풍선 합성 오류: {e2}")
-                    return raw
-        return None
+                    st.warning(f"이미지 분할 오류: {e2}")
+                    # 분할 실패시 전체 이미지를 4개 모두에 사용
+                    return [raw] * 4
+        return [None] * 4
     except Exception as e:
-        st.warning(f"⚠️ {panel_num}컷 이미지 생성 실패: {e}")
-        return None
+        st.warning(f"⚠️ 이미지 생성 실패: {e}")
+        return [None] * 4
 
 def build_comic_sheet(title: str, panels: list[dict]) -> bytes:
     """4컷 이미지를 2×2로 꽉 차게 붙이기"""
@@ -326,31 +361,39 @@ if st.session_state.stage == "input":
     st.markdown('<div class="step-badge"><span class="step-dot"></span> 1단계 · 아이디어 입력</div>', unsafe_allow_html=True)
     st.markdown('<p style="font-size:1.05rem;font-weight:700;color:#2D1B69;margin-bottom:0.3rem">💡 어떤 만화를 만들고 싶어?</p>', unsafe_allow_html=True)
 
-    idea = st.text_input("아이디어",
-                         placeholder="✏️  여기에 아이디어를 써봐! 예) 강아지가 숙제를 도와주다가 망치는 이야기",
-                         value=st.session_state.idea,
-                         key="idea_input",
-                         label_visibility="collapsed")
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("**💡 예시 아이디어를 눌러봐! (누르면 바로 입력돼)**")
+    # 예시 클릭 시 idea 세션 업데이트
     examples = [
-        "🐶 강아지가 숙제를 망치는 이야기",
-        "🚀 우주에서 점심 먹는 이야기",
-        "🌊 바다에서 보물을 찾는 이야기",
-        "🤖 로봇 친구와 운동회",
-        "🦁 동물원에서 탈출한 사자 이야기",
-        "🍕 피자를 혼자 다 먹으려다 생긴 일",
-        "⚽ 축구 시합에서 역전 골을 넣는 이야기",
-        "🎵 노래를 못하는 아이가 대회에 나가는 이야기",
+        "🐶 민준이가 학교 숙제를 하는데 강아지 루비가 공책을 물고 도망가는 이야기",
+        "🚀 지구에서 온 소녀 하나가 우주 정거장 식당에서 외계인 친구와 점심을 먹는 이야기",
+        "🌊 바닷가 마을에 사는 쌍둥이 남매가 모래사장에서 보물 지도를 발견하는 이야기",
+        "⚽ 겁쟁이 소년 태양이가 운동장에서 축구 결승전 마지막 순간에 역전 골을 넣는 이야기",
+        "🎨 그림을 못 그리는 여자아이 수아가 미술 대회에 나가서 뜻밖의 상을 받는 이야기",
+        "🦸 평범한 초등학생 준호가 학교 화장실에서 슈퍼히어로 망토를 발견하는 이야기",
+        "🍔 급식 시간에 급식실에서 반찬이 모두 사라지는 사건을 탐정 미래가 해결하는 이야기",
+        "🌱 화분에 물을 안 줬더니 식물이 말을 걸어와서 당황한 어린이 유진이의 이야기",
     ]
+
+    st.markdown("**💡 예시를 눌러봐! 인물·사건·장소가 있으면 더 재미있는 만화가 돼 (누르면 바로 입력돼)**")
     row1_cols = st.columns(4)
     row2_cols = st.columns(4)
     all_cols = row1_cols + row2_cols
     for i, ex in enumerate(examples):
         if all_cols[i].button(ex, key=f"ex_{i}", use_container_width=True):
             st.session_state.idea = ex
+            st.session_state["_idea_input_val"] = ex
             st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    # value를 세션에서 직접 읽어서 예시 클릭 시 즉시 반영
+    idea = st.text_input("아이디어",
+                         placeholder="✏️  여기에 아이디어를 써봐!",
+                         value=st.session_state.get("_idea_input_val", st.session_state.idea),
+                         key="idea_input",
+                         label_visibility="collapsed")
+    # 직접 입력 시 세션 업데이트
+    if idea != st.session_state.idea:
+        st.session_state.idea = idea
+        st.session_state["_idea_input_val"] = idea
     st.markdown("<br>", unsafe_allow_html=True)
     c = st.columns([1,2,1])
     with c[1]:
@@ -442,17 +485,15 @@ elif st.session_state.stage == "drawing":
     character_desc = final["character_desc"]
     st.markdown('<div class="step-badge"><span class="step-dot"></span> 3단계 · 만화 그리는 중...</div>', unsafe_allow_html=True)
 
-    progress_bar = st.progress(0, text="🎨 AI가 그림을 그리고 있어요...")
-    status_area  = st.empty()
+    progress_bar = st.progress(0, text="🎨 AI가 4컷 만화를 한 번에 그리는 중...")
+    status_area = st.empty()
+    status_area.markdown("**🖌️ 4컷 만화 전체를 한 번에 그리고 있어요... 잠깐만 기다려 줘! (30초~1분)**")
 
-    for i, panel in enumerate(final["panels"]):
-        status_area.markdown(f"**🖌️ {i+1}컷 그리는 중... ({i+1}/4)**")
-        img_bytes = generate_panel_image(
-            panel["description_en"], character_desc,
-            i+1, style_prompt, panel["dialogue"]
-        )
+    panel_images = generate_all_panels(final["panels"], character_desc, style_prompt)
+    progress_bar.progress(1.0, text="✅ 완료!")
+
+    for i, img_bytes in enumerate(panel_images):
         final["panels"][i]["image_bytes"] = img_bytes
-        progress_bar.progress((i+1)/4, text=f"✅ {i+1}컷 완료! ({i+1}/4)")
 
     status_area.empty()
     st.session_state.final = final
@@ -495,9 +536,12 @@ elif st.session_state.stage == "done":
 
     st.markdown("---")
 
-    # 합본 PNG
+    # 합본 PNG - 전체 이미지가 있으면 그대로 사용, 없으면 조합
     with st.spinner("합본 이미지 만드는 중..."):
-        sheet_bytes = build_comic_sheet(title, final["panels"])
+        if st.session_state.get("_full_comic_bytes"):
+            sheet_bytes = st.session_state["_full_comic_bytes"]
+        else:
+            sheet_bytes = build_comic_sheet(title, final["panels"])
 
     st.markdown("### ⬇️ 다운로드")
     dl_cols = st.columns(3)
