@@ -129,7 +129,7 @@ def generate_comic_script(idea: str) -> ComicScript | None:
 - title과 dialogue는 반드시 한국어, description은 반드시 영어로 작성"""
     try:
         response = client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-2.0-flash",
             contents=f"아이디어: {idea}",
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
