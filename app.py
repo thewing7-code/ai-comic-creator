@@ -73,21 +73,31 @@ def generate_comic_script(idea: str) -> ComicScript | None:
 - 각 컷의 dialogue: 한국어 대사 (15자 이내로 짧게)
 - description_ko: 한국어 장면 묘사 2문장
 title, description_ko, dialogue는 한국어. character_desc, description_en은 영어."""
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=f"아이디어: {idea}",
-            config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                response_mime_type="application/json",
-                response_schema=ComicScript,
-                temperature=1.0,
-            ),
-        )
-        return response.parsed
-    except Exception as e:
-        st.error(f"❌ 시나리오 생성 오류: {e}")
-        return None
+    import time
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=f"아이디어: {idea}",
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    response_mime_type="application/json",
+                    response_schema=ComicScript,
+                    temperature=1.0,
+                ),
+            )
+            return response.parsed
+        except Exception as e:
+            err_str = str(e)
+            if "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str:
+                if attempt < 2:
+                    st.warning(f"⏳ AI 서버가 잠시 바빠요. {(attempt+1)*10}초 후 다시 시도할게요... ({attempt+1}/3)")
+                    time.sleep((attempt+1) * 10)
+                    continue
+            st.error(f"❌ 시나리오 생성 오류: {e}")
+            return None
+    st.error("❌ AI 서버가 계속 바빠요. 잠시 후 다시 시도해 주세요!")
+    return None
 
 def add_speech_bubble(img: Image.Image, dialogue: str) -> Image.Image:
     """이미지 하단 안쪽에 말풍선 오버레이 합성 (이미지 크기 유지)"""
@@ -96,7 +106,7 @@ def add_speech_bubble(img: Image.Image, dialogue: str) -> Image.Image:
 
     # 폰트 로드
     font = None
-    FONT_SIZE = max(20, W // 22)
+    FONT_SIZE = max(22, W // 20)
     font_paths = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "NotoSansCJK-Bold.ttc"),
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
@@ -112,38 +122,38 @@ def add_speech_bubble(img: Image.Image, dialogue: str) -> Image.Image:
         font = ImageFont.load_default()
 
     # 텍스트 줄바꿈
-    max_chars = 16
+    max_chars = 14
     lines = textwrap.wrap(dialogue, width=max_chars)[:2]
     n_lines = len(lines)
-    line_h = FONT_SIZE + 6
-    bubble_h = n_lines * line_h + 28
-    bubble_w = W - 40
-    bx = 20
-    by = H - bubble_h - 20  # 이미지 하단 안쪽
+    line_h = FONT_SIZE + 8
+    bubble_h = n_lines * line_h + 32
+    bubble_w = int(W * 0.75)
+    bx = (W - bubble_w) // 2          # 가로 가운데 정렬
+    tail_h = 22
+    by = H - bubble_h - tail_h - 16   # 꼬리 공간 확보 후 배치
 
-    # 말풍선 반투명 배경 (흰색 + 테두리)
-    # PIL은 투명도 직접 지원 안 하므로 흰 배경으로
+    # 말풍선 배경 (흰색 + 보라 테두리)
     draw.rounded_rectangle(
         [bx, by, bx + bubble_w, by + bubble_h],
-        radius=16, fill="white", outline="#7B3FDB", width=3
+        radius=18, fill="white", outline="#7B3FDB", width=3
     )
 
-    # 말풍선 꼬리 (아래쪽 가운데)
+    # 말풍선 꼬리 - 말풍선 아래 중앙에서 아래쪽으로
     tail_x = W // 2
-    tail_tip_y = by + bubble_h + 16
+    tail_top_y = by + bubble_h
+    tail_tip_y = tail_top_y + tail_h
     draw.polygon(
-        [(tail_x - 12, by + bubble_h),
-         (tail_x + 12, by + bubble_h),
-         (tail_x, min(tail_tip_y, H - 4))],
+        [(tail_x - 14, tail_top_y),
+         (tail_x + 14, tail_top_y),
+         (tail_x, tail_tip_y)],
         fill="white"
     )
-    draw.line([(tail_x - 12, by + bubble_h), (tail_x, min(tail_tip_y, H - 4))],
-              fill="#7B3FDB", width=2)
-    draw.line([(tail_x + 12, by + bubble_h), (tail_x, min(tail_tip_y, H - 4))],
-              fill="#7B3FDB", width=2)
+    # 꼬리 테두리
+    draw.line([(tail_x - 14, tail_top_y), (tail_x, tail_tip_y)], fill="#7B3FDB", width=3)
+    draw.line([(tail_x + 14, tail_top_y), (tail_x, tail_tip_y)], fill="#7B3FDB", width=3)
 
-    # 텍스트
-    text_start_y = by + 12
+    # 텍스트 가운데 정렬
+    text_start_y = by + 14
     for li, line in enumerate(lines):
         try:
             tw = draw.textlength(line, font=font)
@@ -176,53 +186,65 @@ def generate_all_panels(panels: list[dict], character_desc: str,
         f"No text, no letters, no writing anywhere in the image. Clean white panel borders."
     )
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash-image",
-            contents=prompt,
-            config=types.GenerateContentConfig(response_modalities=["IMAGE"]),
-        )
-        for part in response.parts:
-            if part.inline_data is not None:
-                raw = part.inline_data.data
-                if isinstance(raw, str):
-                    import base64 as b64
-                    raw = b64.b64decode(raw)
-                try:
-                    # 생성된 4컷 전체 이미지를 2x2로 분할
-                    full_img = Image.open(io.BytesIO(raw)).convert("RGB")
-                    W, H = full_img.size
-                    half_w, half_h = W // 2, H // 2
-
-                    # 원본 전체 이미지 저장 (합본 PNG 다운로드용)
-                    full_buf = io.BytesIO()
-                    full_img.save(full_buf, format="PNG")
-                    st.session_state["_full_comic_bytes"] = full_buf.getvalue()
-
-                    panel_images = []
-                    coords = [
-                        (0, 0, half_w, half_h),
-                        (half_w, 0, W, half_h),
-                        (0, half_h, half_w, H),
-                        (half_w, half_h, W, H),
-                    ]
-                    for idx, (x0, y0, x1, y1) in enumerate(coords):
-                        panel_img = full_img.crop((x0, y0, x1, y1))
-                        # PIL로 말풍선 합성 (AI 한글이 불안정하므로 직접 그림)
-                        dialogue = panels[idx]["dialogue"]
-                        panel_with_bubble = add_speech_bubble(panel_img, dialogue)
-                        buf = io.BytesIO()
-                        panel_with_bubble.save(buf, format="PNG")
-                        panel_images.append(buf.getvalue())
-
-                    return panel_images
-                except Exception as e2:
-                    st.warning(f"이미지 분할 오류: {e2}")
-                    return [raw] * 4
+    import time
+    response = None
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash-image",
+                contents=prompt,
+                config=types.GenerateContentConfig(response_modalities=["IMAGE"]),
+            )
+            break
+        except Exception as e:
+            err_str = str(e)
+            if "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str:
+                if attempt < 2:
+                    st.warning(f"⏳ AI가 그림 그리느라 바빠요. 잠시만 기다려주세요... ({attempt+1}/3)")
+                    time.sleep((attempt+1) * 15)
+                    continue
+            st.warning(f"⚠️ 이미지 생성 실패: {e}")
+            return [None] * 4
+    if response is None:
+        st.warning("⚠️ AI 서버가 계속 바빠요. 잠시 후 다시 시도해 주세요!")
         return [None] * 4
-    except Exception as e:
-        st.warning(f"⚠️ 이미지 생성 실패: {e}")
-        return [None] * 4
+    # 응답에서 이미지 추출 및 분할
+    for part in response.parts:
+        if part.inline_data is not None:
+            raw = part.inline_data.data
+            if isinstance(raw, str):
+                import base64 as b64
+                raw = b64.b64decode(raw)
+            try:
+                full_img = Image.open(io.BytesIO(raw)).convert("RGB")
+                W, H = full_img.size
+                half_w, half_h = W // 2, H // 2
+
+                # 원본 전체 이미지 저장
+                full_buf = io.BytesIO()
+                full_img.save(full_buf, format="PNG")
+                st.session_state["_full_comic_bytes"] = full_buf.getvalue()
+
+                panel_images = []
+                coords = [
+                    (0, 0, half_w, half_h),
+                    (half_w, 0, W, half_h),
+                    (0, half_h, half_w, H),
+                    (half_w, half_h, W, H),
+                ]
+                for idx, (x0, y0, x1, y1) in enumerate(coords):
+                    panel_img = full_img.crop((x0, y0, x1, y1))
+                    dialogue = panels[idx]["dialogue"]
+                    panel_with_bubble = add_speech_bubble(panel_img, dialogue)
+                    buf = io.BytesIO()
+                    panel_with_bubble.save(buf, format="PNG")
+                    panel_images.append(buf.getvalue())
+
+                return panel_images
+            except Exception as e2:
+                st.warning(f"이미지 분할 오류: {e2}")
+                return [raw] * 4
+    return [None] * 4
 
 def build_comic_sheet(title: str, panels: list[dict]) -> bytes:
     """4컷 이미지를 2×2로 꽉 차게 붙이기"""
@@ -564,7 +586,7 @@ elif st.session_state.stage == "done":
 
     st.markdown("---")
     st.markdown("### 📌 패들렛에 올리기")
-    student_name = st.text_input("내 이름을 입력해줘!", placeholder="예) 홍길동", key="student_name")
+    student_name = st.text_input("내 이름을 입력해줘!", placeholder="예) 완산초 6학년 홍길동", key="student_name")
     pc = st.columns([1,2,1])
     with pc[1]:
         if st.button("📌 패들렛 갤러리에 올리기!", use_container_width=True):
