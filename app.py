@@ -90,40 +90,48 @@ title, description_ko, dialogue는 한국어. character_desc, description_en은 
 def add_speech_bubble(img: Image.Image, dialogue: str) -> Image.Image:
     """이미지 하단에 말풍선과 한글 대사를 합성"""
     W, H = img.size
-    bubble_h = max(70, int(H * 0.18))
-    new_img = Image.new("RGB", (W, H + bubble_h), "#FFFAF5")
+    FONT_SIZE = 28
+    bubble_h = 100
+    new_img = Image.new("RGB", (W, H + bubble_h), "white")
     new_img.paste(img, (0, 0))
     draw = ImageDraw.Draw(new_img)
 
     # 말풍선 배경
-    margin = 12
-    draw.rounded_rectangle([margin, H + 6, W - margin, H + bubble_h - 6],
-                            radius=16, fill="white", outline="#7B3FDB", width=3)
-
+    margin = 10
+    draw.rounded_rectangle(
+        [margin, H + 10, W - margin, H + bubble_h - 6],
+        radius=18, fill="#F0E8FF", outline="#7B3FDB", width=3
+    )
     # 말풍선 꼬리
     tail_x = W // 2
-    draw.polygon([(tail_x - 12, H + 6), (tail_x + 12, H + 6), (tail_x, H - 8)],
-                 fill="white")
-    draw.line([(tail_x - 12, H + 6), (tail_x, H - 8)], fill="#7B3FDB", width=2)
-    draw.line([(tail_x + 12, H + 6), (tail_x, H - 8)], fill="#7B3FDB", width=2)
+    draw.polygon(
+        [(tail_x - 14, H + 10), (tail_x + 14, H + 10), (tail_x, H - 4)],
+        fill="#F0E8FF"
+    )
+    draw.line([(tail_x - 14, H + 10), (tail_x, H - 4)], fill="#7B3FDB", width=2)
+    draw.line([(tail_x + 14, H + 10), (tail_x, H - 4)], fill="#7B3FDB", width=2)
 
-    # 한글 폰트
+    # 한글 폰트 (opentype)
     try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
-                                   max(18, int(bubble_h * 0.32)))
+        font = ImageFont.truetype(
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", FONT_SIZE
+        )
     except Exception:
         font = ImageFont.load_default()
 
-    # 텍스트 줄바꿈
-    max_chars = 16
+    # 텍스트 가운데 정렬
+    max_chars = 18
     lines = textwrap.wrap(dialogue, width=max_chars)[:2]
-    total_h = len(lines) * (font.size + 4)
-    start_y = H + (bubble_h - total_h) // 2 + 4
+    total_text_h = len(lines) * (FONT_SIZE + 6)
+    start_y = H + 10 + (bubble_h - 16 - total_text_h) // 2
 
     for li, line in enumerate(lines):
-        tw = draw.textlength(line, font=font)
-        draw.text(((W - tw) / 2, start_y + li * (font.size + 4)),
-                  line, font=font, fill="#2D1B69")
+        try:
+            tw = draw.textlength(line, font=font)
+        except Exception:
+            tw = len(line) * FONT_SIZE * 0.6
+        x = max(margin + 8, (W - tw) / 2)
+        draw.text((x, start_y + li * (FONT_SIZE + 6)), line, font=font, fill="#2D1B69")
     return new_img
 
 def generate_panel_image(description_en: str, character_desc: str,
@@ -173,8 +181,8 @@ def build_comic_sheet(title: str, panels: list[dict]) -> bytes:
     draw.rectangle([0, 0, SHEET_W, TITLE_H], fill="#2D1B69")
 
     try:
-        font_title = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc", 32)
-        font_num   = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc", 22)
+        font_title = ImageFont.truetype("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", 32)
+        font_num   = ImageFont.truetype("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", 22)
     except Exception:
         font_title = ImageFont.load_default()
         font_num = font_title
@@ -433,8 +441,18 @@ elif st.session_state.stage == "done":
     for i, panel in enumerate(final["panels"]):
         with grid[i]:
             if panel["image_bytes"]:
-                st.image(panel["image_bytes"], use_container_width=True,
-                         caption=f"{i+1}컷 ({story_labels[i]})")
+                try:
+                    disp_img = Image.open(io.BytesIO(panel["image_bytes"])).convert("RGB")
+                    max_w = 480
+                    if disp_img.width > max_w:
+                        ratio = max_w / disp_img.width
+                        disp_img = disp_img.resize((max_w, int(disp_img.height * ratio)), Image.LANCZOS)
+                    disp_buf = io.BytesIO()
+                    disp_img.save(disp_buf, format="PNG")
+                    st.image(disp_buf.getvalue(), use_container_width=True,
+                             caption=f"{i+1}컷 ({story_labels[i]})")
+                except Exception:
+                    st.image(panel["image_bytes"], use_container_width=True)
             else:
                 st.markdown(f'<div style="background:#F5EEFF;border-radius:12px;height:200px;display:flex;align-items:center;justify-content:center;font-size:2rem">🖼️</div>', unsafe_allow_html=True)
 
