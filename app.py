@@ -162,10 +162,7 @@ def generate_all_panels(panels: list[dict], character_desc: str,
     # 각 컷 장면 설명 정리
     panel_descs = []
     for i, p in enumerate(panels):
-        panel_descs.append(
-            f"Panel {i+1}: {p['description_en']} "
-            f"(dialogue bubble text: '{p['dialogue']}')"
-        )
+        panel_descs.append(f"Panel {i+1}: {p['description_en']}")
     scenes_text = " | ".join(panel_descs)
 
     prompt = (
@@ -173,11 +170,10 @@ def generate_all_panels(panels: list[dict], character_desc: str,
         f"Create a single image showing a 4-panel comic strip arranged in a 2x2 grid. "
         f"CRITICAL: Use the EXACT SAME character in ALL 4 panels: {character_desc}. "
         f"Same face, same hair, same clothes throughout all panels. "
-        f"Each panel has a speech bubble with Korean dialogue text inside the panel. "
         f"Panel layout (2 columns, 2 rows): {scenes_text}. "
         f"Include visible panel borders dividing the 4 panels. "
-        f"Each panel must show a speech bubble with the dialogue text clearly readable. "
-        f"No additional text outside the speech bubbles. Clean white panel borders."
+        f"Leave empty space at the bottom of each panel for speech bubbles. "
+        f"No text, no letters, no writing anywhere in the image. Clean white panel borders."
     )
 
     try:
@@ -198,28 +194,30 @@ def generate_all_panels(panels: list[dict], character_desc: str,
                     W, H = full_img.size
                     half_w, half_h = W // 2, H // 2
 
-                    panel_images = []
-                    coords = [
-                        (0, 0, half_w, half_h),          # 1컷 (좌상)
-                        (half_w, 0, W, half_h),           # 2컷 (우상)
-                        (0, half_h, half_w, H),           # 3컷 (좌하)
-                        (half_w, half_h, W, H),           # 4컷 (우하)
-                    ]
-                    for x0, y0, x1, y1 in coords:
-                        panel_img = full_img.crop((x0, y0, x1, y1))
-                        buf = io.BytesIO()
-                        panel_img.save(buf, format="PNG")
-                        panel_images.append(buf.getvalue())
-
-                    # 원본 전체 이미지도 저장 (합본 PNG 다운로드용)
+                    # 원본 전체 이미지 저장 (합본 PNG 다운로드용)
                     full_buf = io.BytesIO()
                     full_img.save(full_buf, format="PNG")
                     st.session_state["_full_comic_bytes"] = full_buf.getvalue()
 
+                    panel_images = []
+                    coords = [
+                        (0, 0, half_w, half_h),
+                        (half_w, 0, W, half_h),
+                        (0, half_h, half_w, H),
+                        (half_w, half_h, W, H),
+                    ]
+                    for idx, (x0, y0, x1, y1) in enumerate(coords):
+                        panel_img = full_img.crop((x0, y0, x1, y1))
+                        # PIL로 말풍선 합성 (AI 한글이 불안정하므로 직접 그림)
+                        dialogue = panels[idx]["dialogue"]
+                        panel_with_bubble = add_speech_bubble(panel_img, dialogue)
+                        buf = io.BytesIO()
+                        panel_with_bubble.save(buf, format="PNG")
+                        panel_images.append(buf.getvalue())
+
                     return panel_images
                 except Exception as e2:
                     st.warning(f"이미지 분할 오류: {e2}")
-                    # 분할 실패시 전체 이미지를 4개 모두에 사용
                     return [raw] * 4
         return [None] * 4
     except Exception as e:
@@ -384,21 +382,18 @@ if st.session_state.stage == "input":
             st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
-    # value를 세션에서 직접 읽어서 예시 클릭 시 즉시 반영
-    idea = st.text_input("아이디어",
-                         placeholder="✏️  여기에 아이디어를 써봐!",
-                         value=st.session_state.get("_idea_input_val", st.session_state.idea),
-                         key="idea_input",
-                         label_visibility="collapsed")
-    # 직접 입력 시 세션 업데이트
-    if idea != st.session_state.idea:
-        st.session_state.idea = idea
-        st.session_state["_idea_input_val"] = idea
+    # text_area로 변경 - key 없이 value만 사용해야 예시 클릭 시 즉시 반영됨
+    idea = st.text_area("아이디어",
+                        placeholder="✏️  여기에 아이디어를 써봐!\n예) 민준이가 학교에서 실수로 선생님 도시락을 바꿔먹는 이야기",
+                        value=st.session_state.idea,
+                        height=100,
+                        label_visibility="collapsed")
+    st.session_state.idea = idea
     st.markdown("<br>", unsafe_allow_html=True)
     c = st.columns([1,2,1])
     with c[1]:
         if st.button("🪄 AI에게 만화 맡기기!", use_container_width=True):
-            cur = idea or st.session_state.idea
+            cur = st.session_state.idea
             if not cur.strip():
                 st.warning("💬 아이디어를 먼저 입력해 줘!")
             else:
