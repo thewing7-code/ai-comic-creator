@@ -26,8 +26,10 @@ div[data-testid="stButton"]>button{border-radius:50px!important;font-family:'Gae
 div[data-testid="stButton"]>button:hover{transform:translateY(-2px)!important;box-shadow:0 6px 18px rgba(100,60,180,.25)!important;}
 div[data-testid="stTextInput"] input,div[data-testid="stTextArea"] textarea{border-radius:10px!important;border:2px solid #D4ABFF!important;font-family:'Noto Sans KR',sans-serif!important;font-size:.9rem!important;}
 /* 빈칸 제거 */
-div[data-testid="stTextInput"] label{display:none!important;}
+div[data-testid="stTextInput"] label{display:none!important;height:0!important;min-height:0!important;margin:0!important;padding:0!important;}
 div[data-testid="stTextInput"]{margin-top:0!important;padding-top:0!important;}
+div[data-testid="stTextInput"]:has(input#idea_input){margin-top:-2rem!important;}
+.big-input input{background:white!important;font-size:1.1rem!important;padding:1rem 1.2rem!important;height:3.2rem!important;border-radius:14px!important;border:2.5px solid #D4ABFF!important;box-shadow:0 2px 12px rgba(100,60,180,.08)!important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -161,7 +163,7 @@ def build_comic_sheet(title: str, panels: list[dict]) -> bytes:
     COLS, ROWS = 2, 2
 
     # 이미지 크기 통일
-    CELL_W, CELL_H = 540, 480
+    CELL_W, CELL_H = 540, 580  # 말풍선 포함 높이
 
     SHEET_W = COLS * CELL_W + (COLS + 1) * PADDING
     SHEET_H = TITLE_H + ROWS * CELL_H + (ROWS + 1) * PADDING
@@ -209,7 +211,7 @@ def build_comic_sheet(title: str, panels: list[dict]) -> bytes:
     return buf.getvalue()
 
 def upload_to_padlet(title: str, sheet_bytes: bytes, student_name: str) -> tuple[bool, str]:
-    """이미지를 imgur에 올린 뒤 패들렛에 링크로 포스팅"""
+    """이미지를 imgur에 올린 뒤 패들렛에 JSON:API 형식으로 포스팅"""
     try:
         padlet_key = st.secrets.get("PADLET_API_KEY") or os.environ.get("PADLET_API_KEY")
         board_id   = st.secrets.get("PADLET_BOARD_ID") or os.environ.get("PADLET_BOARD_ID", "h1koxptryz9hcl3p")
@@ -222,25 +224,38 @@ def upload_to_padlet(title: str, sheet_bytes: bytes, student_name: str) -> tuple
             timeout=30,
         )
         if imgur_resp.status_code != 200:
-            return False, f"이미지 호스팅 실패 ({imgur_resp.status_code})"
+            return False, f"이미지 호스팅 실패 ({imgur_resp.status_code}): {imgur_resp.text[:100]}"
 
         image_url = imgur_resp.json()["data"]["link"]
 
-        # 2) 패들렛 포스팅
-        headers = {"X-API-KEY": padlet_key, "Content-Type": "application/json"}
+        # 2) 패들렛 포스팅 (JSON:API 스펙, api.padlet.dev)
+        headers = {
+            "X-API-KEY": padlet_key,
+            "Content-Type": "application/vnd.api+json",
+        }
         payload = {
-            "subject": f"🎨 {student_name}의 만화: {title}",
-            "body": f"AI 4컷 만화 창작소에서 만들었어요! 제목: {title}",
-            "attachment": {"url": image_url},
+            "data": {
+                "type": "post",
+                "attributes": {
+                    "content": {
+                        "subject": f"🎨 {student_name}의 만화: {title}",
+                        "bodyHtml": f"<p>AI 4컷 만화 창작소에서 만들었어요!</p>",
+                        "attachment": {
+                            "url": image_url,
+                            "caption": f"{student_name}의 4컷 만화: {title}",
+                        },
+                    }
+                },
+            }
         }
         resp = req.post(
-            f"https://api.padlet.com/v1/boards/{board_id}/posts",
+            f"https://api.padlet.dev/v1/boards/{board_id}/posts",
             headers=headers, json=payload, timeout=30,
         )
         if resp.status_code in (200, 201):
             return True, image_url
         else:
-            return False, f"패들렛 오류 {resp.status_code}: {resp.text[:200]}"
+            return False, f"패들렛 오류 {resp.status_code}: {resp.text[:300]}"
     except Exception as e:
         return False, str(e)
 
@@ -264,23 +279,22 @@ st.markdown("""
 # ════════════════════════════════════════════════════════════════════
 if st.session_state.stage == "input":
     st.markdown('<div class="step-badge"><span class="step-dot"></span> 1단계 · 아이디어 입력</div>', unsafe_allow_html=True)
-    st.markdown('<div class="idea-card">', unsafe_allow_html=True)
-    st.markdown('<div class="card-label">💡 어떤 만화를 만들고 싶어?</div>', unsafe_allow_html=True)
+    st.markdown('<p style="font-size:1.05rem;font-weight:700;color:#2D1B69;margin-bottom:0.3rem">💡 어떤 만화를 만들고 싶어?</p>', unsafe_allow_html=True)
 
     idea = st.text_input("아이디어",
-                         placeholder="예) 강아지가 숙제를 도와주다가 망치는 이야기",
+                         placeholder="✏️  여기에 아이디어를 써봐! 예) 강아지가 숙제를 도와주다가 망치는 이야기",
                          value=st.session_state.idea,
                          key="idea_input",
                          label_visibility="collapsed")
 
-    st.markdown("**예시 아이디어를 눌러봐!**")
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("**💡 예시 아이디어를 눌러봐!**")
     cols = st.columns(4)
     examples = ["🐶 강아지가 숙제를 망치는 이야기","🚀 우주에서 점심 먹는 이야기","🌊 바다에서 보물 찾기","🤖 로봇 친구와 운동회"]
     for i, ex in enumerate(examples):
         if cols[i].button(ex, key=f"ex_{i}", use_container_width=True):
             st.session_state.idea = ex
             st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
     c = st.columns([1,2,1])
     with c[1]:
@@ -410,6 +424,10 @@ elif st.session_state.stage == "done":
     story_labels = ["기","승","전","결"]
     row1 = st.columns([1,1], gap="small")
     row2 = st.columns([1,1], gap="small")
+    st.markdown("""<style>
+    div[data-testid="stHorizontalBlock"]{gap:0.3rem!important;}
+    div[data-testid="stImage"]{margin-bottom:0!important;}
+    </style>""", unsafe_allow_html=True)
     grid = [row1[0], row1[1], row2[0], row2[1]]
 
     for i, panel in enumerate(final["panels"]):
