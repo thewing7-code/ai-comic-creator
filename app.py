@@ -413,7 +413,7 @@ for k, v in defaults.items():
 st.markdown("""
 <div class="hero-header">
   <p style="font-size:2.8rem;margin:0">🎨</p>
-  <p style="font-size:1rem;font-weight:700;color:#9B7CC8;margin-bottom:0.2rem;letter-spacing:0.05em">🔬 부안 과학축전</p>
+  <p style="font-size:1.5rem;font-weight:800;color:#7B3FDB;margin-bottom:0.3rem;letter-spacing:0.08em">🔬 부안 과학축전</p>
   <h1 class="hero-title">AI <span>4컷 만화</span> 창작소</h1>
   <p class="hero-sub">✨ 아이디어 한 줄이면 나만의 만화가 뚝딱! ✨</p>
 </div>
